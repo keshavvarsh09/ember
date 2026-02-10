@@ -8,21 +8,7 @@ export default function GameLobby() {
     const dailySpark = getDailySpark();
     const randomDare = getRandomDare(state.userProfile.heatLevel);
 
-    const handleStartStory = () => {
-        dispatch({ type: 'SET_SCREEN', payload: 'mood' });
-    };
-
-    const handleLibrary = () => {
-        dispatch({ type: 'SET_SCREEN', payload: 'library' });
-    };
-
-    const handleDare = () => {
-        dispatch({ type: 'SET_SCREEN', payload: 'dare' });
-    };
-
-    const handleProgress = () => {
-        dispatch({ type: 'SET_SCREEN', payload: 'progress' });
-    };
+    const navigate = (screen) => dispatch({ type: 'SET_SCREEN', payload: screen });
 
     return (
         <div className="lobby page-enter">
@@ -45,8 +31,27 @@ export default function GameLobby() {
                     </div>
                 </div>
 
-                {/* Daily Spark Card */}
-                <div className="lobby__daily glass-card animate-fade-in-up delay-1" onClick={handleStartStory}>
+                {/* Communication Bar */}
+                <div className="lobby__comms-bar animate-fade-in-up delay-1">
+                    <button className="lobby__comm-btn glass-card" onClick={() => navigate('chat')}>
+                        <span>💬</span>
+                        <span>Chat</span>
+                        {state.chatMessages.length > 0 && (
+                            <span className="lobby__comm-badge">{state.chatMessages.filter(m => m.from === 'partner').length}</span>
+                        )}
+                    </button>
+                    <button className="lobby__comm-btn glass-card" onClick={() => { dispatch({ type: 'START_CALL', payload: 'voice' }); navigate('call'); }}>
+                        <span>📞</span>
+                        <span>Voice</span>
+                    </button>
+                    <button className="lobby__comm-btn glass-card" onClick={() => { dispatch({ type: 'START_CALL', payload: 'video' }); navigate('call'); }}>
+                        <span>📹</span>
+                        <span>Video</span>
+                    </button>
+                </div>
+
+                {/* Daily Spark */}
+                <div className="lobby__daily glass-card animate-fade-in-up delay-1" onClick={() => navigate('mood')}>
                     <div className="lobby__daily-badge">✨ TODAY'S SPARK</div>
                     <div className="lobby__daily-content">
                         <span className="lobby__daily-emoji">{dailySpark.emoji}</span>
@@ -60,29 +65,39 @@ export default function GameLobby() {
                     <div className="lobby__daily-cta">Tap to Play →</div>
                 </div>
 
-                {/* Game Modes */}
+                {/* Free Choice Activity Grid */}
                 <div className="lobby__modes">
-                    <h3 className="lobby__section-title animate-fade-in-up delay-2">Play Tonight</h3>
+                    <h3 className="lobby__section-title animate-fade-in-up delay-2">What do you want to do? 😏</h3>
                     <div className="lobby__mode-grid">
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-2" onClick={handleStartStory}>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-2" onClick={() => navigate('mood')}>
                             <span className="lobby__mode-icon">📖</span>
                             <span className="lobby__mode-label">Story Mode</span>
                             <span className="lobby__mode-desc">Interactive narrative</span>
                         </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-3" onClick={handleDare}>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-3" onClick={() => navigate('minigames')}>
+                            <span className="lobby__mode-icon">🎲</span>
+                            <span className="lobby__mode-label">Board Games</span>
+                            <span className="lobby__mode-desc">Ludo, S&L, Monopoly</span>
+                        </button>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-3" onClick={() => navigate('dare')}>
                             <span className="lobby__mode-icon">🎯</span>
                             <span className="lobby__mode-label">Quick Dare</span>
                             <span className="lobby__mode-desc">Fast & spicy</span>
                         </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-4" onClick={handleLibrary}>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-4" onClick={() => navigate('spin')}>
+                            <span className="lobby__mode-icon">🎰</span>
+                            <span className="lobby__mode-label">Spin Wheel</span>
+                            <span className="lobby__mode-desc">Let fate decide</span>
+                        </button>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-4" onClick={() => navigate('library')}>
                             <span className="lobby__mode-icon">📚</span>
                             <span className="lobby__mode-label">Story Library</span>
                             <span className="lobby__mode-desc">Browse all stories</span>
                         </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-5" onClick={handleProgress}>
-                            <span className="lobby__mode-icon">🏆</span>
-                            <span className="lobby__mode-label">Our Journey</span>
-                            <span className="lobby__mode-desc">Stats & progress</span>
+                        <button className="lobby__mode glass-card animate-fade-in-up delay-5" onClick={() => navigate('rewards')}>
+                            <span className="lobby__mode-icon">🎁</span>
+                            <span className="lobby__mode-label">Daily Rewards</span>
+                            <span className="lobby__mode-desc">Streak bonuses</span>
                         </button>
                     </div>
                 </div>
@@ -94,21 +109,16 @@ export default function GameLobby() {
                         <span className="lobby__qd-heat">{'🔥'.repeat(randomDare.heat)}</span>
                     </div>
                     <p className="lobby__qd-text font-story">{randomDare.text}</p>
-                    <button className="btn btn--secondary btn--full" onClick={handleDare} style={{ marginTop: '1rem' }}>
+                    <button className="btn btn--secondary btn--full" onClick={() => navigate('dare')} style={{ marginTop: '1rem' }}>
                         Accept Dare 🎯
                     </button>
                 </div>
 
-                {/* Ember Score */}
-                <div className="lobby__ember-score animate-fade-in-up delay-7">
-                    <div className="lobby__es-label">Ember Score</div>
-                    <div className="lobby__es-bar">
-                        <div
-                            className="lobby__es-fill"
-                            style={{ width: `${Math.min((state.emberScore / 500) * 100, 100)}%` }}
-                        />
-                    </div>
-                    <div className="lobby__es-value">{state.emberScore} 🔥</div>
+                {/* Progress Section */}
+                <div className="lobby__footer animate-fade-in-up delay-7">
+                    <button className="btn btn--ghost" onClick={() => navigate('progress')}>
+                        🏆 Our Journey — {state.emberScore} 🔥
+                    </button>
                 </div>
             </div>
         </div>
