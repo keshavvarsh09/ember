@@ -5020,10 +5020,66 @@ img {
   margin-bottom: var(--space-md);
 }
 
-.library__card-tag {
-  font-size: 10px;
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--text-muted);
+
+/* --- Spin Wheel --- */
+.spin__container {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 0 auto 32px;
+}
+
+.spin__pointer {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+}
+
+.spin__wheel {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 4px solid var(--border-glow);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 20px rgba(232, 67, 147, 0.2);
+  background: conic-gradient(from 0deg,
+      #e84393 0deg 45deg,
+      #8b5cf6 45deg 90deg,
+      #ff6b35 90deg 135deg,
+      #f43f5e 135deg 180deg,
+      #0ea5e9 180deg 225deg,
+      #10b981 225deg 270deg,
+      #7c3aed 270deg 315deg,
+      #f97316 315deg 360deg);
+}
+
+.spin__segment {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 2px;
+  height: 50%;
+  background: transparent;
+  transform-origin: 50% 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 20px;
+  border: none !important;
+  /* Override potential inline styles from JSX */
+}
+
+.spin__segment-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  white-space: nowrap;
 }
