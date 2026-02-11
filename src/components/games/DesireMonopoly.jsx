@@ -1,308 +1,157 @@
-import React, { useState } from 'react';
+import React, { useCallback } from 'react';
 import { useGame } from '../../engine/gameState';
-import { monopolyBoard, monopolyProperties, chanceCards, communityCards, rollDice, getRandomChanceCard, getRandomCommunityCard } from '../../data/games-data';
+import { sendGameEvent } from '../../lib/realtimeManager';
+import Icon from '../ui/Icons';
+import { monopolyProperties } from '../../data/games-data';
 
 export default function DesireMonopoly() {
     const { state, dispatch } = useGame();
-    const [playerPos, setPlayerPos] = useState(0);
-    const [partnerPos, setPartnerPos] = useState(0);
-    const [money, setMoney] = useState([500, 500]);
-    const [owned, setOwned] = useState([[], []]); // [player owned, partner owned]
-    const [currentTurn, setCurrentTurn] = useState(0);
-    const [diceValue, setDiceValue] = useState(null);
-    const [rolling, setRolling] = useState(false);
-    const [currentCard, setCurrentCard] = useState(null);
-    const [showAction, setShowAction] = useState(false);
-    const [actionType, setActionType] = useState(null); // 'buy' | 'rent' | 'chance' | 'community' | 'jail' | 'go'
-    const [inJail, setInJail] = useState([false, false]);
-    const [jailChoice, setJailChoice] = useState(null);
+    const { monopolyState, userId, userProfile, partnerProfile } = state;
+    const { positions, currentTurn, diceValue, money, ownedProperties, currentCard, inJail, gameOver } = monopolyState;
 
-    const currentPlayer = currentTurn === 0 ? state.userProfile : state.partnerProfile;
-    const positions = [playerPos, partnerPos];
+    const playerIndex = currentTurn === 0 ? 0 : 1;
+    const isMyTurn = currentTurn === playerIndex;
 
-    const getPropertyById = (id) => monopolyProperties.find(p => p.id === id);
+    const rollDice = useCallback(() => {
+        if (!isMyTurn || gameOver) return;
 
-    const handleRoll = () => {
-        if (rolling || showAction) return;
+        const roll = Math.floor(Math.random() * 6) + 1;
+        const newPos = (positions[playerIndex] + roll) % 24;
+        const prop = monopolyProperties?.[newPos] || { name: `Square ${newPos + 1}`, price: 50, type: 'property', action: 'Draw closer...' };
 
-        // Check if in jail
-        if (inJail[currentTurn]) {
-            setActionType('jail');
-            setShowAction(true);
-            return;
-        }
+        const update = {
+            diceValue: roll,
+            positions: positions.map((p, i) => i === playerIndex ? newPos : p),
+            currentCard: prop,
+            currentTurn: currentTurn === 0 ? 1 : 0,
+        };
 
-        setRolling(true);
-        setDiceValue(null);
+        dispatch({ type: 'UPDATE_MONOPOLY', payload: update });
+        sendGameEvent('monopoly_move', { update, playerIndex });
+    }, [isMyTurn, gameOver, positions, playerIndex, currentTurn, money, ownedProperties]);
 
-        let rolls = 0;
-        const anim = setInterval(() => {
-            setDiceValue(Math.floor(Math.random() * 6) + 1);
-            rolls++;
-            if (rolls > 8) {
-                clearInterval(anim);
-                const finalRoll = rollDice();
-                setDiceValue(finalRoll);
-                setRolling(false);
+    const buyProperty = () => {
+        if (!currentCard || !currentCard.price) return;
+        const cost = currentCard.price;
+        if (money[playerIndex] < cost) return;
 
-                const currentPos = currentTurn === 0 ? playerPos : partnerPos;
-                const newPos = (currentPos + finalRoll) % monopolyBoard.length;
-
-                // Check if passed GO
-                if (newPos < currentPos) {
-                    const newMoney = [...money];
-                    newMoney[currentTurn] += 50;
-                    setMoney(newMoney);
-                }
-
-                if (currentTurn === 0) setPlayerPos(newPos);
-                else setPartnerPos(newPos);
-
-                // Process square
-                const square = monopolyBoard[newPos];
-                processSquare(square, newPos);
-            }
-        }, 100);
-    };
-
-    const processSquare = (square, pos) => {
-        switch (square.type) {
-            case 'property': {
-                const prop = getPropertyById(square.propertyId);
-                const ownerIdx = owned[0].includes(square.propertyId) ? 0 : owned[1].includes(square.propertyId) ? 1 : -1;
-
-                if (ownerIdx === -1) {
-                    // Unowned - can buy
-                    setCurrentCard({ ...prop, pos });
-                    setActionType('buy');
-                } else if (ownerIdx !== currentTurn) {
-                    // Owned by opponent - pay rent
-                    setCurrentCard({ ...prop, owner: ownerIdx });
-                    setActionType('rent');
-                } else {
-                    // Own property
-                    setCurrentCard({ ...prop, message: 'You own this. Relax.' });
-                    setActionType('own');
-                }
-                setShowAction(true);
-                break;
-            }
-            case 'chance':
-                setCurrentCard(getRandomChanceCard());
-                setActionType('chance');
-                setShowAction(true);
-                break;
-            case 'community':
-                setCurrentCard(getRandomCommunityCard());
-                setActionType('community');
-                setShowAction(true);
-                break;
-            case 'jail':
-                // Just visiting
-                setCurrentCard({ text: 'Just visiting jail... for now 👀' });
-                setActionType('visit');
-                setShowAction(true);
-                break;
-            case 'go-to-jail': {
-                const newJail = [...inJail];
-                newJail[currentTurn] = true;
-                setInJail(newJail);
-                setCurrentCard({ text: 'Go to Jail! 🔒 Strip to escape or skip next turn.' });
-                setActionType('go-to-jail');
-                setShowAction(true);
-                break;
-            }
-            case 'free-parking':
-                setCurrentCard({ text: '🌙 Free Fantasy! Both partners share a fantasy aloud. No holding back.' });
-                setActionType('fantasy');
-                setShowAction(true);
-                break;
-            case 'go':
-                setCurrentCard({ text: '🚀 Passed GO! Collect 50 coins.' });
-                setActionType('go');
-                setShowAction(true);
-                break;
-            default:
-                endTurn();
-        }
-    };
-
-    const handleBuy = () => {
-        if (money[currentTurn] >= currentCard.price) {
-            const newMoney = [...money];
-            newMoney[currentTurn] -= currentCard.price;
-            setMoney(newMoney);
-
-            const newOwned = [...owned];
-            newOwned[currentTurn] = [...newOwned[currentTurn], currentCard.id];
-            setOwned(newOwned);
-        }
-        endTurn();
-    };
-
-    const handlePayRent = () => {
         const newMoney = [...money];
-        newMoney[currentTurn] -= currentCard.rent;
-        newMoney[currentCard.owner] += currentCard.rent;
-        setMoney(newMoney);
-        endTurn();
+        newMoney[playerIndex] -= cost;
+        const newOwned = [...ownedProperties];
+        newOwned[playerIndex] = [...newOwned[playerIndex], currentCard.name];
+
+        const update = { money: newMoney, ownedProperties: newOwned };
+        dispatch({ type: 'UPDATE_MONOPOLY', payload: update });
+        sendGameEvent('monopoly_buy', { update, playerIndex, property: currentCard.name });
     };
 
-    const handleJailEscape = (method) => {
-        const newJail = [...inJail];
-        newJail[currentTurn] = false;
-        setInJail(newJail);
-        if (method === 'strip') {
-            // Strip to escape
-        }
-        endTurn();
+    const resetGame = () => {
+        dispatch({ type: 'RESET_GAME' });
+        sendGameEvent('game_reset', { game: 'monopoly' });
+        dispatch({ type: 'SET_SCREEN', payload: 'minigames' });
     };
-
-    const endTurn = () => {
-        setShowAction(false);
-        setCurrentCard(null);
-        setActionType(null);
-        setCurrentTurn(currentTurn === 0 ? 1 : 0);
-    };
-
-    const diceEmojis = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
     return (
-        <div className="monopoly page-enter">
-            <div className="container">
-                <div className="monopoly__header">
-                    <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
-                        ← Back
+        <div className="screen game-screen">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
+                        <Icon name="arrow-left" size={20} />
                     </button>
-                    <h2 className="monopoly__title font-story">🏘️ Desire Monopoly</h2>
-                </div>
-
-                {/* Player stats */}
-                <div className="monopoly__players animate-fade-in-up">
-                    <div className={`monopoly__player ${currentTurn === 0 ? 'monopoly__player--active' : ''}`}>
-                        <span className="monopoly__player-avatar">{state.userProfile.avatar}</span>
-                        <span className="monopoly__player-name">{state.userProfile.name}</span>
-                        <span className="monopoly__player-money">💰 {money[0]}</span>
-                        <span className="monopoly__player-props">{owned[0].length} owned</span>
-                    </div>
-                    <div className="monopoly__vs">VS</div>
-                    <div className={`monopoly__player ${currentTurn === 1 ? 'monopoly__player--active' : ''}`}>
-                        <span className="monopoly__player-avatar">{state.partnerProfile.avatar}</span>
-                        <span className="monopoly__player-name">{state.partnerProfile.name || 'Partner'}</span>
-                        <span className="monopoly__player-money">💰 {money[1]}</span>
-                        <span className="monopoly__player-props">{owned[1].length} owned</span>
+                    <h2 className="game__title">Desire Monopoly</h2>
+                    <div className="game__turn-indicator">
+                        {isMyTurn ? (
+                            <span className="game__your-turn">Your turn</span>
+                        ) : (
+                            <span className="game__partner-turn">Partner's turn</span>
+                        )}
                     </div>
                 </div>
 
-                {/* Board */}
-                <div className="monopoly__board animate-fade-in-up delay-1">
-                    {monopolyBoard.map((sq, i) => {
-                        const prop = sq.type === 'property' ? getPropertyById(sq.propertyId) : null;
-                        const isOwned0 = prop && owned[0].includes(prop.id);
-                        const isOwned1 = prop && owned[1].includes(prop.id);
+                {/* Money display */}
+                <div className="game__scores" style={{ marginBottom: 16 }}>
+                    <div className="game__score-card">
+                        <Icon name="heart" size={16} color="#e84393" />
+                        <span>{userProfile.name || 'You'}: ${money[0]}</span>
+                    </div>
+                    <div className="game__score-card">
+                        <Icon name="star" size={16} color="#8b5cf6" />
+                        <span>{partnerProfile.name || 'Partner'}: ${money[1]}</span>
+                    </div>
+                </div>
+
+                {/* Board track */}
+                <div className="monopoly__track">
+                    {Array.from({ length: 24 }).map((_, i) => {
+                        const prop = MONOPOLY_PROPERTIES?.[i];
+                        const isP1 = positions[0] === i;
+                        const isP2 = positions[1] === i;
+                        const ownedBy = ownedProperties[0]?.includes(prop?.name) ? 0 : ownedProperties[1]?.includes(prop?.name) ? 1 : -1;
+
                         return (
-                            <div
-                                key={i}
-                                className={`monopoly__cell ${i === playerPos ? 'monopoly__cell--user' : ''} ${i === partnerPos ? 'monopoly__cell--partner' : ''}`}
-                            >
-                                <span className="monopoly__cell-emoji">{prop ? prop.emoji : sq.emoji}</span>
-                                <span className="monopoly__cell-name">{prop ? prop.name : sq.name}</span>
-                                {prop && <span className="monopoly__cell-price">💰{prop.price}</span>}
-                                {isOwned0 && <span className="monopoly__owned-marker monopoly__owned-marker--user" />}
-                                {isOwned1 && <span className="monopoly__owned-marker monopoly__owned-marker--partner" />}
-                                {i === playerPos && <span className="monopoly__token">{state.userProfile.avatar}</span>}
-                                {i === partnerPos && <span className="monopoly__token">{state.partnerProfile.avatar}</span>}
+                            <div key={i} className={`monopoly__cell ${isP1 ? 'monopoly__cell--p1' : ''} ${isP2 ? 'monopoly__cell--p2' : ''} ${ownedBy === 0 ? 'monopoly__cell--owned-p1' : ownedBy === 1 ? 'monopoly__cell--owned-p2' : ''}`}>
+                                <span className="monopoly__cell-name">{prop?.name || i + 1}</span>
+                                {prop?.price && <span className="monopoly__cell-price">${prop.price}</span>}
+                                {isP1 && <div className="ludo__token ludo__token--p1" style={{ position: 'absolute', top: 2, right: 2 }}><Icon name="heart" size={8} /></div>}
+                                {isP2 && <div className="ludo__token ludo__token--p2" style={{ position: 'absolute', bottom: 2, right: 2 }}><Icon name="star" size={8} /></div>}
                             </div>
                         );
                     })}
                 </div>
 
                 {/* Dice */}
-                {!showAction && (
-                    <div className="monopoly__dice-area animate-fade-in-up delay-2">
-                        <div className="monopoly__turn-label">
-                            {currentPlayer.avatar} {currentPlayer.name}'s turn
-                            {inJail[currentTurn] && ' 🔒 (In Jail)'}
+                <div className="game__dice-area">
+                    <button
+                        className={`game__dice-btn ${isMyTurn ? 'game__dice-btn--active' : ''}`}
+                        onClick={rollDice}
+                        disabled={!isMyTurn || gameOver}
+                    >
+                        <Icon name="dice" size={28} />
+                        <span>{diceValue || '?'}</span>
+                    </button>
+                </div>
+
+                {/* Current card */}
+                {currentCard && (
+                    <div className="game__prompt glass-card">
+                        <div className="game__prompt-type">
+                            <Icon name="cards" size={18} />
+                            <span>{currentCard.name}</span>
+                            {currentCard.price && <span className="monopoly__price-tag">${currentCard.price}</span>}
                         </div>
-                        <button
-                            className={`monopoly__dice-btn ${rolling ? 'monopoly__dice-btn--rolling' : ''}`}
-                            onClick={handleRoll}
-                            disabled={rolling}
-                        >
-                            {diceValue ? diceEmojis[diceValue - 1] : '🎲'}
-                        </button>
+                        <p className="game__prompt-text">{currentCard.action}</p>
+
+                        {currentCard.price && isMyTurn && money[playerIndex] >= currentCard.price && (
+                            <button className="btn btn--primary btn--sm" onClick={buyProperty} style={{ marginTop: 12 }}>
+                                <Icon name="plus" size={14} />
+                                <span>Buy for ${currentCard.price}</span>
+                            </button>
+                        )}
                     </div>
                 )}
 
-                {/* Action modal */}
-                {showAction && currentCard && (
-                    <div className="monopoly__action glass-card animate-scale-in">
-                        {actionType === 'buy' && (
-                            <>
-                                <div className="monopoly__action-emoji">{currentCard.emoji}</div>
-                                <h3 className="font-story">{currentCard.name}</h3>
-                                <p className="monopoly__action-desc">{currentCard.desc}</p>
-                                <p className="monopoly__action-price">Price: 💰{currentCard.price} | Rent: 💰{currentCard.rent}</p>
-                                <div className="monopoly__action-btns">
-                                    <button className="btn btn--primary" onClick={handleBuy} disabled={money[currentTurn] < currentCard.price}>
-                                        Buy {currentCard.name} 💰
-                                    </button>
-                                    <button className="btn btn--ghost" onClick={endTurn}>Pass</button>
-                                </div>
-                            </>
+                {/* Properties owned */}
+                <div className="monopoly__owned">
+                    <h4>Your Properties</h4>
+                    <div className="monopoly__owned-list">
+                        {ownedProperties[playerIndex]?.length > 0 ? (
+                            ownedProperties[playerIndex].map((p, i) => (
+                                <span key={i} className="monopoly__owned-tag">{p}</span>
+                            ))
+                        ) : (
+                            <span style={{ opacity: 0.5 }}>None yet</span>
                         )}
-                        {actionType === 'rent' && (
-                            <>
-                                <div className="monopoly__action-emoji">{currentCard.emoji}</div>
-                                <h3 className="font-story">{currentCard.name}</h3>
-                                <p className="monopoly__rent-msg">
-                                    This belongs to {currentCard.owner === 0 ? state.userProfile.name : state.partnerProfile.name}!
-                                    <br />Describe what they'd do to this body part as "rent" payment.
-                                </p>
-                                <p className="monopoly__action-price">Rent: 💰{currentCard.rent}</p>
-                                <button className="btn btn--primary btn--full" onClick={handlePayRent}>
-                                    Pay Rent (in words and coins) 🔥
-                                </button>
-                            </>
-                        )}
-                        {actionType === 'own' && (
-                            <>
-                                <div className="monopoly__action-emoji">{currentCard.emoji}</div>
-                                <h3 className="font-story">{currentCard.name}</h3>
-                                <p>{currentCard.message}</p>
-                                <button className="btn btn--primary btn--full" onClick={endTurn}>Continue</button>
-                            </>
-                        )}
-                        {(actionType === 'chance' || actionType === 'community') && (
-                            <>
-                                <div className="monopoly__action-emoji">{actionType === 'chance' ? '❓' : '💝'}</div>
-                                <h3 className="font-story">{actionType === 'chance' ? 'Chance!' : 'Intimacy Card'}</h3>
-                                <p className="monopoly__card-text font-story">{currentCard.text}</p>
-                                <div className="monopoly__card-heat">{'🔥'.repeat(currentCard.heat)}</div>
-                                <button className="btn btn--primary btn--full" onClick={endTurn}>Done ✓</button>
-                            </>
-                        )}
-                        {actionType === 'jail' && (
-                            <>
-                                <div className="monopoly__action-emoji">🔒</div>
-                                <h3 className="font-story">You're in Jail!</h3>
-                                <p>Choose your escape method:</p>
-                                <div className="monopoly__action-btns">
-                                    <button className="btn btn--primary" onClick={() => handleJailEscape('strip')}>
-                                        Strip to Escape 🔥
-                                    </button>
-                                    <button className="btn btn--ghost" onClick={() => handleJailEscape('skip')}>
-                                        Skip Turn
-                                    </button>
-                                </div>
-                            </>
-                        )}
-                        {(actionType === 'go-to-jail' || actionType === 'visit' || actionType === 'fantasy' || actionType === 'go') && (
-                            <>
-                                <p className="monopoly__card-text font-story">{currentCard.text}</p>
-                                <button className="btn btn--primary btn--full" onClick={endTurn}>Continue</button>
-                            </>
-                        )}
+                    </div>
+                </div>
+
+                {gameOver && (
+                    <div className="game__over glass-card">
+                        <Icon name="trophy" size={40} color="#ffd700" />
+                        <h3>Game Over!</h3>
+                        <button className="btn btn--primary" onClick={resetGame}>
+                            <Icon name="refresh" size={16} />
+                            <span>Play Again</span>
+                        </button>
                     </div>
                 )}
             </div>

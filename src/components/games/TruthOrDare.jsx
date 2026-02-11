@@ -1,155 +1,145 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useGame } from '../../engine/gameState';
+import { sendGameEvent } from '../../lib/realtimeManager';
+import Icon from '../ui/Icons';
 import { truthOrDarePrompts } from '../../data/games-data';
 
 export default function TruthOrDare() {
     const { state, dispatch } = useGame();
-    const [round, setRound] = useState(0);
-    const [currentTurn, setCurrentTurn] = useState(0);
+    const { truthDareState, userId, userProfile, partnerProfile } = state;
+    const { round, currentTurn } = truthDareState;
     const [choice, setChoice] = useState(null); // 'truth' | 'dare'
     const [currentPrompt, setCurrentPrompt] = useState(null);
-    const [revealed, setRevealed] = useState(false);
-    const [clothingRemoved, setClothingRemoved] = useState([0, 0]);
-    const [skipped, setSkipped] = useState(false);
-    const [gameOver, setGameOver] = useState(false);
+    const [completed, setCompleted] = useState(false);
 
-    const currentPlayer = currentTurn === 0 ? state.userProfile : state.partnerProfile;
-    const heatLevel = Math.min(Math.floor(round / 2) + 1, 5);
-    const heatLabels = ['', 'Warm 😊', 'Flirty 😏', 'Steamy 🥵', 'Hot 🔥', 'Inferno 💜'];
-    const totalRounds = 10;
+    const playerIndex = currentTurn === 0 ? 0 : 1;
+    const isMyTurn = currentTurn === playerIndex;
+    const MAX_ROUNDS = 10;
 
-    const handleChoice = (type) => {
+    const pickChoice = useCallback((type) => {
         setChoice(type);
-        const prompts = type === 'truth' ? truthOrDarePrompts.truth : truthOrDarePrompts.dare;
-        const filtered = prompts.filter(p => p.heat === heatLevel);
-        const prompt = filtered[Math.floor(Math.random() * filtered.length)] || prompts[0];
+        const prompts = type === 'truth' ? truthOrDarePrompts?.truth : truthOrDarePrompts?.dare;
+        const allPrompts = prompts || [
+            { text: 'What is your deepest desire?', heat: 2 },
+            { text: 'Act out your favorite fantasy.', heat: 3 },
+        ];
+        const prompt = allPrompts[Math.floor(Math.random() * allPrompts.length)];
         setCurrentPrompt(prompt);
-        setRevealed(false);
-        setSkipped(false);
-        setTimeout(() => setRevealed(true), 800);
-    };
 
-    const handleDone = () => {
-        const nextRound = round + 1;
-        if (nextRound >= totalRounds) {
-            setGameOver(true);
-        } else {
-            setRound(nextRound);
-            setCurrentTurn(currentTurn === 0 ? 1 : 0);
+        sendGameEvent('td_choice', { type, prompt, round, playerIndex });
+    }, [round, playerIndex]);
+
+    const completePrompt = () => {
+        setCompleted(true);
+        const update = {
+            round: round + 1,
+            currentTurn: currentTurn === 0 ? 1 : 0,
+        };
+        dispatch({ type: 'UPDATE_TRUTH_DARE', payload: update });
+        sendGameEvent('td_complete', { update });
+
+        setTimeout(() => {
             setChoice(null);
             setCurrentPrompt(null);
-            setRevealed(false);
-        }
+            setCompleted(false);
+        }, 1500);
     };
 
-    const handleSkip = () => {
-        // Skip costs a clothing item
-        const newClothing = [...clothingRemoved];
-        newClothing[currentTurn]++;
-        setClothingRemoved(newClothing);
-        setSkipped(true);
+    const resetGame = () => {
+        dispatch({ type: 'RESET_GAME' });
+        sendGameEvent('game_reset', { game: 'truth-dare' });
+        dispatch({ type: 'SET_SCREEN', payload: 'minigames' });
     };
+
+    if (round >= MAX_ROUNDS) {
+        return (
+            <div className="screen game-screen">
+                <div className="screen__content" style={{ textAlign: 'center' }}>
+                    <Icon name="trophy" size={64} color="#ffd700" />
+                    <h2 className="screen__title" style={{ marginTop: 16 }}>Game Complete!</h2>
+                    <p className="screen__subtitle">{MAX_ROUNDS} rounds of truth & dare</p>
+                    <button className="btn btn--primary" onClick={resetGame} style={{ marginTop: 24 }}>
+                        <Icon name="refresh" size={16} />
+                        <span>Play Again</span>
+                    </button>
+                    <button className="btn btn--secondary" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })} style={{ marginTop: 12 }}>
+                        Back to Games
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="truth-dare page-enter">
-            <div className="container">
-                <div className="truth-dare__header">
-                    <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
-                        ← Back
+        <div className="screen game-screen">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
+                        <Icon name="arrow-left" size={20} />
                     </button>
-                    <h2 className="truth-dare__title font-story">🔥 Truth or Dare</h2>
+                    <h2 className="game__title">Truth or Dare</h2>
+                    <span className="game__round">Round {round + 1}/{MAX_ROUNDS}</span>
                 </div>
 
-                {/* Round indicator */}
-                <div className="truth-dare__round animate-fade-in-up">
-                    <div className="truth-dare__round-bar">
-                        <div className="truth-dare__round-fill" style={{ width: `${(round / totalRounds) * 100}%` }} />
-                    </div>
-                    <div className="truth-dare__round-info">
-                        <span>Round {round + 1}/{totalRounds}</span>
-                        <span className="truth-dare__heat-label">{heatLabels[heatLevel]}</span>
-                    </div>
-                </div>
-
-                {/* Players */}
-                <div className="truth-dare__players animate-fade-in-up">
-                    <div className={`truth-dare__player ${currentTurn === 0 ? 'truth-dare__player--active' : ''}`}>
-                        <span>{state.userProfile.avatar}</span>
-                        <span>{state.userProfile.name}</span>
-                        {clothingRemoved[0] > 0 && <span className="truth-dare__stripped">-{clothingRemoved[0]} 👗</span>}
-                    </div>
-                    <div className={`truth-dare__player ${currentTurn === 1 ? 'truth-dare__player--active' : ''}`}>
-                        <span>{state.partnerProfile.avatar}</span>
-                        <span>{state.partnerProfile.name || 'Partner'}</span>
-                        {clothingRemoved[1] > 0 && <span className="truth-dare__stripped">-{clothingRemoved[1]} 👗</span>}
-                    </div>
-                </div>
-
-                {/* Choice */}
-                {!choice && !gameOver && (
-                    <div className="truth-dare__choice animate-fade-in-up delay-1">
-                        <h3 className="font-story">{currentPlayer.name}, choose:</h3>
-                        <div className="truth-dare__choice-btns">
-                            <button className="truth-dare__choice-btn truth-dare__choice-btn--truth glass-card" onClick={() => handleChoice('truth')}>
-                                <span className="truth-dare__choice-emoji">💬</span>
-                                <span className="truth-dare__choice-label">Truth</span>
-                            </button>
-                            <button className="truth-dare__choice-btn truth-dare__choice-btn--dare glass-card" onClick={() => handleChoice('dare')}>
-                                <span className="truth-dare__choice-emoji">⚡</span>
-                                <span className="truth-dare__choice-label">Dare</span>
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Prompt */}
-                {choice && currentPrompt && !gameOver && (
-                    <div className="truth-dare__prompt glass-card animate-scale-in">
-                        <div className="truth-dare__prompt-type">
-                            {choice === 'truth' ? '💬 TRUTH' : '⚡ DARE'} {'🔥'.repeat(heatLevel)}
-                        </div>
-                        {revealed ? (
-                            <>
-                                <p className="truth-dare__prompt-text font-story">{currentPrompt.text}</p>
-                                {!skipped ? (
-                                    <div className="truth-dare__prompt-actions">
-                                        <button className="btn btn--primary btn--full" onClick={handleDone}>
-                                            Done ✓
-                                        </button>
-                                        <button className="btn btn--ghost" onClick={handleSkip}>
-                                            Skip (costs clothing 👗)
-                                        </button>
-                                    </div>
-                                ) : (
-                                    <div className="truth-dare__skipped animate-scale-in">
-                                        <p>Skipped! Remove a piece of clothing. 😏</p>
-                                        <button className="btn btn--primary btn--full" onClick={handleDone}>
-                                            Done
-                                        </button>
-                                    </div>
-                                )}
-                            </>
+                {/* Turn display */}
+                <div className="td__turn-display">
+                    <div className="game__turn-indicator">
+                        {isMyTurn ? (
+                            <span className="game__your-turn">
+                                <Icon name="user" size={16} /> Your turn to choose
+                            </span>
                         ) : (
-                            <div className="truth-dare__revealing">
-                                <div className="truth-dare__card-flip">?</div>
-                            </div>
+                            <span className="game__partner-turn">
+                                <Icon name="users" size={16} /> {partnerProfile.name}'s turn
+                            </span>
                         )}
                     </div>
+                </div>
+
+                {/* Choice buttons */}
+                {!choice && isMyTurn && (
+                    <div className="td__choices">
+                        <button className="td__choice-btn td__choice-btn--truth" onClick={() => pickChoice('truth')}>
+                            <Icon name="eye" size={32} />
+                            <span>Truth</span>
+                        </button>
+                        <button className="td__choice-btn td__choice-btn--dare" onClick={() => pickChoice('dare')}>
+                            <Icon name="flame" size={32} />
+                            <span>Dare</span>
+                        </button>
+                    </div>
                 )}
 
-                {/* Game Over */}
-                {gameOver && (
-                    <div className="truth-dare__gameover animate-scale-in">
-                        <div className="truth-dare__gameover-emoji">🔥</div>
-                        <h2 className="font-story">All rounds complete!</h2>
-                        <p>How much clothing is left? 😏</p>
-                        <div className="truth-dare__final-score">
-                            <span>{state.userProfile.name}: -{clothingRemoved[0]} items</span>
-                            <span>{state.partnerProfile.name || 'Partner'}: -{clothingRemoved[1]} items</span>
+                {/* Waiting for partner */}
+                {!choice && !isMyTurn && (
+                    <div className="td__waiting">
+                        <div className="onboarding__pulse" />
+                        <span>Waiting for {partnerProfile.name} to choose...</span>
+                    </div>
+                )}
+
+                {/* Prompt display */}
+                {currentPrompt && (
+                    <div className={`game__prompt glass-card td__prompt td__prompt--${choice}`}>
+                        <div className="game__prompt-type">
+                            <Icon name={choice === 'truth' ? 'eye' : 'flame'} size={20} />
+                            <span>{choice.toUpperCase()}</span>
                         </div>
-                        <button className="btn btn--primary btn--full" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ marginTop: '1.5rem' }}>
-                            Back to Lobby 🔥
-                        </button>
+                        <p className="game__prompt-text">{currentPrompt.text}</p>
+
+                        {!completed && isMyTurn && (
+                            <button className="btn btn--primary" onClick={completePrompt} style={{ marginTop: 16 }}>
+                                <Icon name="check" size={16} />
+                                <span>Done!</span>
+                            </button>
+                        )}
+
+                        {completed && (
+                            <div className="td__completed">
+                                <Icon name="check-circle" size={24} color="#4ade80" />
+                                <span>Completed!</span>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import { useGame } from '../engine/gameState';
 import { tiers, getCategoriesByTier } from '../data/categories';
+import Icon from './ui/Icons';
+import Avatar from './ui/Avatar';
 
-const heatLabels = ['', 'Warm 🌸', 'Flirty 🌹', 'Steamy 🔥', 'Hot 💜', 'Inferno 🖤'];
+const heatIcons = ['', 'heart', 'flame', 'fire', 'zap', 'star'];
+const heatLabels = ['', 'Warm', 'Flirty', 'Steamy', 'Hot', 'Inferno'];
 
 export default function ProfileSetup() {
     const { state, dispatch } = useGame();
@@ -25,19 +28,24 @@ export default function ProfileSetup() {
     const currentTier = tiers.find((t) => t.id === activeTier);
 
     return (
-        <div className="profile page-enter">
-            <div className="container">
-                <div className="profile__header">
-                    <h2 className="profile__title font-story animate-fade-in-up">
-                        What <span className="text-gradient">excites</span> you?
-                    </h2>
-                    <p className="profile__subtitle animate-fade-in-up delay-1">
-                        Select what interests you. Your partner does the same — then we reveal what you share. 🔒 Private until matched.
-                    </p>
+        <div className="screen profile-setup">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">Preferences</h2>
                 </div>
 
+                <h2 className="screen__title">
+                    What <span className="gradient-text">excites</span> you?
+                </h2>
+                <p className="screen__subtitle">
+                    Select what interests you. Your partner does the same — then we reveal what you share.
+                </p>
+
                 {/* Tier Tabs */}
-                <div className="profile__tiers animate-fade-in-up delay-2">
+                <div className="profile__tiers">
                     {tiers.map((tier) => (
                         <button
                             key={tier.id}
@@ -45,15 +53,18 @@ export default function ProfileSetup() {
                             onClick={() => setActiveTier(tier.id)}
                             style={activeTier === tier.id ? { borderColor: tier.color, color: tier.color } : {}}
                         >
-                            <span>{tier.emoji}</span>
+                            <Icon name={heatIcons[tier.id] || 'heart'} size={16} />
                             <span className="profile__tier-name">{tier.name}</span>
                         </button>
                     ))}
                 </div>
 
                 {/* Tier Description */}
-                <div className="profile__tier-info animate-fade-in" key={activeTier}>
-                    <span style={{ color: currentTier.color }}>{currentTier.emoji} {currentTier.name}</span>
+                <div className="profile__tier-info" key={activeTier}>
+                    <span style={{ color: currentTier.color }}>
+                        <Icon name={heatIcons[currentTier.id] || 'heart'} size={14} color={currentTier.color} />
+                        {' '}{currentTier.name}
+                    </span>
                     <span className="profile__tier-desc"> — {currentTier.description}</span>
                 </div>
 
@@ -75,14 +86,14 @@ export default function ProfileSetup() {
                                 <span className="profile__cat-emoji">{cat.emoji}</span>
                                 <span className="profile__cat-name">{cat.name}</span>
                                 <span className="profile__cat-desc">{cat.description}</span>
-                                {isSelected && <span className="profile__cat-check">✓</span>}
+                                {isSelected && <span className="profile__cat-check"><Icon name="check" size={14} /></span>}
                             </button>
                         );
                     })}
                 </div>
 
                 {/* Heat Level Selector */}
-                <div className="profile__heat animate-fade-in-up delay-3">
+                <div className="profile__heat">
                     <h3 className="profile__heat-title">Your comfort zone</h3>
                     <p className="profile__heat-desc">How far do you want stories to go?</p>
                     <div className="profile__heat-slider">
@@ -95,29 +106,36 @@ export default function ProfileSetup() {
                             className="profile__heat-range"
                         />
                         <div className="profile__heat-labels">
-                            <span className={heatLevel >= 1 ? 'active' : ''}>🌸</span>
-                            <span className={heatLevel >= 2 ? 'active' : ''}>🌹</span>
-                            <span className={heatLevel >= 3 ? 'active' : ''}>🔥</span>
-                            <span className={heatLevel >= 4 ? 'active' : ''}>💜</span>
-                            <span className={heatLevel >= 5 ? 'active' : ''}>🖤</span>
+                            {[1, 2, 3, 4, 5].map(h => (
+                                <span key={h} className={heatLevel >= h ? 'active' : ''}>
+                                    <Icon name={heatIcons[h]} size={16} />
+                                </span>
+                            ))}
                         </div>
-                        <div className="profile__heat-current" style={{ color: tiers[heatLevel - 1].color }}>
-                            {heatLabels[heatLevel]}
+                        <div className="profile__heat-current" style={{ color: tiers[heatLevel - 1]?.color }}>
+                            <Icon name={heatIcons[heatLevel]} size={16} />
+                            <span>{heatLabels[heatLevel]}</span>
                         </div>
                     </div>
                 </div>
 
                 {/* Stats & Continue */}
-                <div className="profile__footer animate-fade-in-up delay-4">
+                <div className="profile__footer">
                     <p className="profile__count">
                         {selectedPrefs.length} interests selected
                     </p>
                     <button
-                        className="btn btn--primary btn--large btn--full"
+                        className="btn btn--primary btn--lg"
                         onClick={handleContinue}
                         disabled={selectedPrefs.length < 3}
+                        style={{ width: '100%' }}
                     >
-                        {selectedPrefs.length < 3 ? `Select ${3 - selectedPrefs.length} more…` : 'Reveal Compatibility 💫'}
+                        {selectedPrefs.length < 3 ? `Select ${3 - selectedPrefs.length} more...` : (
+                            <>
+                                <Icon name="sparkle" size={16} />
+                                <span>Reveal Compatibility</span>
+                            </>
+                        )}
                     </button>
                 </div>
             </div>

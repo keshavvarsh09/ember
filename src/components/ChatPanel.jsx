@@ -1,160 +1,230 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useGame } from '../engine/gameState';
-
-const quickReplies = ['😍', '🔥', 'Tell me more...', 'Your turn', 'I dare you', '💋'];
-const partnerAutoReplies = [
-    'Mmm, keep going... 😏',
-    'You\'re making me blush 🙈',
-    'I can\'t stop thinking about you 💭',
-    'Tell me something I don\'t know about you...',
-    'Your turn. Make it good. 🔥',
-    'I wish you were here right now...',
-    'That made my heart race 💓',
-    'You\'re dangerous with words 😏',
-];
+import { supabase } from '../lib/supabaseClient';
+import { sendChatBroadcast, sendTyping } from '../lib/realtimeManager';
+import Icon from './ui/Icons';
+import Avatar from './ui/Avatar';
 
 export default function ChatPanel() {
     const { state, dispatch } = useGame();
-    const [message, setMessage] = useState('');
+    const [input, setInput] = useState('');
     const [showEmoji, setShowEmoji] = useState(false);
-    const [typing, setTyping] = useState(false);
-    const messagesEndRef = useRef(null);
-    const inputRef = useRef(null);
+    const [partnerTyping, setPartnerTyping] = useState(false);
+    const messagesEnd = useRef(null);
+    const typingTimeout = useRef(null);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
+    const { userProfile, partnerProfile, chatMessages, userId, roomId } = state;
 
+    // Load message history from Supabase on mount
     useEffect(() => {
-        scrollToBottom();
-    }, [state.chatMessages]);
+        if (!roomId) return;
+        const loadMessages = async () => {
+            const { data } = await supabase
+                .from('messages')
+                .select('*')
+                .eq('room_id', roomId)
+                .order('created_at', { ascending: true })
+                .limit(100);
 
-    const sendMessage = (text) => {
-        if (!text.trim()) return;
+            if (data) {
+                dispatch({
+                    type: 'LOAD_MESSAGES',
+                    payload: data.map(m => ({
+                        id: m.id,
+                        text: m.text,
+                        sender: m.sender_id,
+                        senderName: m.sender_name,
+                        time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    })),
+                });
+            }
+        };
+        loadMessages();
+    }, [roomId]);
+
+    // Auto-scroll to bottom
+    useEffect(() => {
+        messagesEnd.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [chatMessages]);
+
+    // Handle typing indicator timeout
+    useEffect(() => {
+        if (partnerTyping) {
+            const t = setTimeout(() => setPartnerTyping(false), 3000);
+            return () => clearTimeout(t);
+        }
+    }, [partnerTyping]);
+
+    // Send message
+    const handleSend = async () => {
+        if (!input.trim()) return;
+
         const msg = {
-            id: Date.now(),
-            from: 'user',
-            text: text.trim(),
+            id: crypto.randomUUID(),
+            text: input.trim(),
+            sender: userId,
+            senderName: userProfile.name,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         };
-        dispatch({ type: 'SEND_MESSAGE', payload: msg });
-        setMessage('');
-        setShowEmoji(false);
 
-        // Simulate partner typing + reply
-        setTyping(true);
-        const delay = 1500 + Math.random() * 2500;
-        setTimeout(() => {
-            setTyping(false);
-            const replyText = partnerAutoReplies[Math.floor(Math.random() * partnerAutoReplies.length)];
-            const reply = {
-                id: Date.now() + 1,
-                from: 'partner',
-                text: replyText,
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            };
-            dispatch({ type: 'SEND_MESSAGE', payload: reply });
-        }, delay);
+        // Add to local state immediately
+        dispatch({ type: 'ADD_MESSAGE', payload: msg });
+
+        // Broadcast to partner
+        sendChatBroadcast(msg);
+
+        // Persist to Supabase
+        await supabase.from('messages').insert({
+            room_id: roomId,
+            sender_id: userId,
+            sender_name: userProfile.name,
+            text: input.trim(),
+        });
+
+        setInput('');
+        setShowEmoji(false);
     };
+
+    // Handle typing
+    const handleInputChange = (e) => {
+        setInput(e.target.value);
+        sendTyping(userId);
+    };
+
+    // Handle receiving chat messages (called from App level)
+    // This component listens via realtimeManager callbacks set up in useRoom
 
     const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            sendMessage(message);
+            handleSend();
         }
     };
 
+    const QUICK_REPLIES = [
+        'Hey babe ❤️', 'Missing you', 'Ready to play?', 'Truth or dare?',
+        'Come closer...', 'I dare you...', 'Tell me more', 'You first...',
+    ];
+
     return (
-        <div className="chat-panel page-enter">
+        <div className="chat-panel">
             {/* Header */}
             <div className="chat-panel__header">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
-                    ← Back
-                </button>
                 <div className="chat-panel__partner">
-                    <span className="chat-panel__partner-avatar">{state.partnerProfile.avatar}</span>
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <Avatar id={partnerProfile.avatarId} size={36} />
                     <div>
-                        <span className="chat-panel__partner-name">{state.partnerProfile.name || 'Partner'}</span>
-                        <span className="chat-panel__status">
+                        <span className="chat-panel__partner-name">{partnerProfile.name || 'Partner'}</span>
+                        <div className="chat-panel__status">
                             <span className="chat-panel__online-dot" />
-                            Online
-                        </span>
+                            <span>Online</span>
+                        </div>
                     </div>
                 </div>
-                <button className="btn btn--ghost btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'call' })}>
-                    📞
-                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn btn--icon" onClick={() => {
+                        dispatch({ type: 'SET_CALL', payload: { active: true, type: 'voice' } });
+                        dispatch({ type: 'SET_SCREEN', payload: 'call' });
+                    }}>
+                        <Icon name="phone" size={20} />
+                    </button>
+                    <button className="btn btn--icon" onClick={() => {
+                        dispatch({ type: 'SET_CALL', payload: { active: true, type: 'video' } });
+                        dispatch({ type: 'SET_SCREEN', payload: 'call' });
+                    }}>
+                        <Icon name="video" size={20} />
+                    </button>
+                </div>
             </div>
 
             {/* Messages */}
             <div className="chat-panel__messages">
-                {state.chatMessages.length === 0 && (
+                {chatMessages.length === 0 ? (
                     <div className="chat-panel__empty">
-                        <div className="chat-panel__empty-icon">💬</div>
-                        <p>Start a conversation...</p>
-                        <p className="chat-panel__empty-hint">Say something sweet. Or spicy. Your call. 🔥</p>
+                        <Icon name="chat" size={48} color="rgba(255,255,255,0.1)" />
+                        <span>Start a conversation</span>
+                        <span className="chat-panel__empty-hint">Messages are synced in real-time</span>
                     </div>
+                ) : (
+                    chatMessages.map((msg) => (
+                        <div
+                            key={msg.id}
+                            className={`chat-panel__bubble ${msg.sender === userId ? 'chat-panel__bubble--user' : 'chat-panel__bubble--partner'}`}
+                        >
+                            <p className="chat-panel__bubble-text">{msg.text}</p>
+                            <span className="chat-panel__bubble-time">{msg.time}</span>
+                        </div>
+                    ))
                 )}
-                {state.chatMessages.map((msg) => (
-                    <div key={msg.id} className={`chat-panel__bubble ${msg.from === 'user' ? 'chat-panel__bubble--user' : 'chat-panel__bubble--partner'}`}>
-                        <div className="chat-panel__bubble-text">{msg.text}</div>
-                        <div className="chat-panel__bubble-time">{msg.time}</div>
-                    </div>
-                ))}
-                {typing && (
+
+                {partnerTyping && (
                     <div className="chat-panel__bubble chat-panel__bubble--partner">
                         <div className="chat-panel__typing">
-                            <span className="chat-panel__typing-dot" />
-                            <span className="chat-panel__typing-dot" />
-                            <span className="chat-panel__typing-dot" />
+                            <div className="chat-panel__typing-dot" />
+                            <div className="chat-panel__typing-dot" />
+                            <div className="chat-panel__typing-dot" />
                         </div>
                     </div>
                 )}
-                <div ref={messagesEndRef} />
+
+                <div ref={messagesEnd} />
             </div>
 
             {/* Quick replies */}
             <div className="chat-panel__quick-replies">
-                {quickReplies.map((qr) => (
-                    <button key={qr} className="chat-panel__qr-btn" onClick={() => sendMessage(qr)}>
+                {QUICK_REPLIES.map((qr, i) => (
+                    <button key={i} className="chat-panel__qr-btn" onClick={() => { setInput(qr); }}>
                         {qr}
                     </button>
                 ))}
             </div>
 
-            {/* Input */}
-            <div className="chat-panel__input-bar">
-                <button className="chat-panel__emoji-btn" onClick={() => setShowEmoji(!showEmoji)}>
-                    😊
-                </button>
-                <input
-                    ref={inputRef}
-                    className="chat-panel__input"
-                    type="text"
-                    placeholder="Type something..."
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                />
-                <button
-                    className={`chat-panel__send-btn ${message.trim() ? 'chat-panel__send-btn--active' : ''}`}
-                    onClick={() => sendMessage(message)}
-                    disabled={!message.trim()}
-                >
-                    ➤
-                </button>
-            </div>
-
             {/* Emoji picker */}
             {showEmoji && (
-                <div className="chat-panel__emoji-picker animate-fade-in-up">
-                    {['❤️', '🔥', '😍', '🥵', '💋', '😏', '💜', '🫣', '⚡', '💦', '👅', '🌶️', '🍑', '🍒', '💫', '🖤'].map((e) => (
-                        <button key={e} className="chat-panel__emoji-option" onClick={() => sendMessage(e)}>
+                <div className="chat-panel__emoji-picker">
+                    {['😏', '🔥', '💕', '😈', '💋', '🥵', '😘', '🤭', '💦', '🌶️', '🫦', '💜', '✨', '😍', '🥰', '👀'].map((e, i) => (
+                        <button key={i} className="chat-panel__emoji-option" onClick={() => setInput(v => v + e)}>
                             {e}
                         </button>
                     ))}
                 </div>
             )}
+
+            {/* Input bar */}
+            <div className="chat-panel__input-bar">
+                <button className="chat-panel__emoji-btn" onClick={() => setShowEmoji(!showEmoji)}>
+                    <Icon name="emoji" size={20} />
+                </button>
+                <input
+                    className="chat-panel__input"
+                    placeholder="Type a message..."
+                    value={input}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                />
+                <button
+                    className={`chat-panel__send-btn ${input.trim() ? 'chat-panel__send-btn--active' : ''}`}
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                >
+                    <Icon name="send" size={18} />
+                </button>
+            </div>
         </div>
     );
+}
+
+// Export handler for incoming messages (used by App-level integration)
+export function handleIncomingChat(dispatch, msg, userId) {
+    if (msg.sender !== userId) {
+        dispatch({ type: 'ADD_MESSAGE', payload: msg });
+    }
+}
+
+export function handlePartnerTyping(setPartnerTyping, data, userId) {
+    if (data.userId !== userId) {
+        setPartnerTyping(true);
+    }
 }

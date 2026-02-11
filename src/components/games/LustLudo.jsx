@@ -1,163 +1,128 @@
-import React, { useState } from 'react';
+import React, { useCallback } from 'react';
 import { useGame } from '../../engine/gameState';
-import { ludoSquares, rollDice } from '../../data/games-data';
-
-const squareColors = {
-    start: '#555', flirt: '#00b894', tease: '#fdcb6e', dare: '#e17055',
-    heat: '#d63031', fantasy: '#6c5ce7', jackpot: '#f9ca24', finish: '#f9ca24',
-    white: '#555',
-};
+import { sendGameEvent } from '../../lib/realtimeManager';
+import Icon from '../ui/Icons';
+import { ludoSquares } from '../../data/games-data';
 
 export default function LustLudo() {
     const { state, dispatch } = useGame();
-    const [playerPos, setPlayerPos] = useState(0);
-    const [partnerPos, setPartnerPos] = useState(0);
-    const [currentTurn, setCurrentTurn] = useState(0); // 0 = user, 1 = partner
-    const [diceValue, setDiceValue] = useState(null);
-    const [rolling, setRolling] = useState(false);
-    const [activeSquare, setActiveSquare] = useState(null);
-    const [showPrompt, setShowPrompt] = useState(false);
-    const [gameOver, setGameOver] = useState(false);
+    const { ludoState, userId, userProfile, partnerProfile } = state;
+    const { positions, currentTurn, diceValue, currentSquare, gameOver } = ludoState;
 
-    const currentPlayer = currentTurn === 0 ? state.userProfile : state.partnerProfile;
-    const positions = [playerPos, partnerPos];
+    // Player index: creator = 0, joiner = 1
+    const playerIndex = state.roomId ? (currentTurn === 0 ? 0 : 1) : 0;
+    const isMyTurn = currentTurn === playerIndex;
 
-    const handleRoll = () => {
-        if (rolling || showPrompt) return;
-        setRolling(true);
-        setDiceValue(null);
+    const rollDice = useCallback(() => {
+        if (!isMyTurn || gameOver) return;
 
-        // Dice animation
-        let rolls = 0;
-        const anim = setInterval(() => {
-            setDiceValue(Math.floor(Math.random() * 6) + 1);
-            rolls++;
-            if (rolls > 8) {
-                clearInterval(anim);
-                const finalRoll = rollDice();
-                setDiceValue(finalRoll);
-                setRolling(false);
+        const roll = Math.floor(Math.random() * 6) + 1;
+        const newPos = Math.min(positions[playerIndex] + roll, 39);
+        const square = ludoSquares?.[newPos] || { text: `Square ${newPos + 1}`, type: 'truth' };
 
-                // Move player
-                const currentPos = currentTurn === 0 ? playerPos : partnerPos;
-                let newPos = Math.min(currentPos + finalRoll, 39);
+        const update = {
+            diceValue: roll,
+            positions: positions.map((p, i) => i === playerIndex ? newPos : p),
+            currentSquare: square,
+            currentTurn: currentTurn === 0 ? 1 : 0,
+            gameOver: newPos >= 39,
+        };
 
-                if (currentTurn === 0) setPlayerPos(newPos);
-                else setPartnerPos(newPos);
+        dispatch({ type: 'UPDATE_LUDO', payload: update });
 
-                // Show square prompt
-                const square = ludoSquares[newPos];
-                setActiveSquare(square);
-                setShowPrompt(true);
+        // Broadcast to partner
+        sendGameEvent('ludo_move', {
+            diceValue: roll,
+            playerIndex,
+            newPos,
+            square,
+            update,
+        });
+    }, [isMyTurn, gameOver, positions, playerIndex, currentTurn]);
 
-                if (newPos >= 39) setGameOver(true);
-            }
-        }, 100);
+    const resetGame = () => {
+        dispatch({ type: 'RESET_GAME' });
+        sendGameEvent('game_reset', { game: 'ludo' });
+        dispatch({ type: 'SET_SCREEN', payload: 'minigames' });
     };
-
-    const handlePromptDone = () => {
-        setShowPrompt(false);
-        setActiveSquare(null);
-        if (!gameOver) {
-            setCurrentTurn(currentTurn === 0 ? 1 : 0);
-        }
-    };
-
-    // Simulate partner roll
-    const handlePartnerRoll = () => {
-        handleRoll();
-    };
-
-    const diceEmojis = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
     return (
-        <div className="ludo page-enter">
-            <div className="container">
-                <div className="ludo__header">
-                    <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
-                        ← Back
+        <div className="screen game-screen">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
+                        <Icon name="arrow-left" size={20} />
                     </button>
-                    <h2 className="ludo__title font-story">🎲 Lust Ludo</h2>
-                </div>
-
-                {/* Player indicators */}
-                <div className="ludo__players animate-fade-in-up">
-                    <div className={`ludo__player ${currentTurn === 0 ? 'ludo__player--active' : ''}`}>
-                        <span className="ludo__player-avatar">{state.userProfile.avatar}</span>
-                        <span className="ludo__player-name">{state.userProfile.name}</span>
-                        <span className="ludo__player-pos">Sq. {playerPos}</span>
-                    </div>
-                    <div className="ludo__vs">VS</div>
-                    <div className={`ludo__player ${currentTurn === 1 ? 'ludo__player--active' : ''}`}>
-                        <span className="ludo__player-avatar">{state.partnerProfile.avatar}</span>
-                        <span className="ludo__player-name">{state.partnerProfile.name || 'Partner'}</span>
-                        <span className="ludo__player-pos">Sq. {partnerPos}</span>
+                    <h2 className="game__title">Lust Ludo</h2>
+                    <div className="game__turn-indicator">
+                        {isMyTurn ? (
+                            <span className="game__your-turn">Your turn</span>
+                        ) : (
+                            <span className="game__partner-turn">Partner's turn</span>
+                        )}
                     </div>
                 </div>
 
-                {/* Board (visual track) */}
-                <div className="ludo__board animate-fade-in-up delay-1">
-                    {ludoSquares.map((sq) => {
-                        const isUser = sq.id === playerPos;
-                        const isPartner = sq.id === partnerPos;
-                        return (
-                            <div
-                                key={sq.id}
-                                className={`ludo__square ${isUser ? 'ludo__square--user' : ''} ${isPartner ? 'ludo__square--partner' : ''} ${sq.id === activeSquare?.id && showPrompt ? 'ludo__square--active' : ''}`}
-                                style={{ '--sq-color': squareColors[sq.type] || squareColors[sq.color] || '#555' }}
-                                title={sq.text}
-                            >
-                                <span className="ludo__square-num">{sq.id}</span>
-                                {isUser && <span className="ludo__token ludo__token--user">{state.userProfile.avatar}</span>}
-                                {isPartner && <span className="ludo__token ludo__token--partner">{state.partnerProfile.avatar}</span>}
-                            </div>
-                        );
-                    })}
+                {/* Board visualization */}
+                <div className="game__board ludo__board">
+                    <div className="ludo__track">
+                        {Array.from({ length: 40 }).map((_, i) => {
+                            const isP1 = positions[0] === i;
+                            const isP2 = positions[1] === i;
+                            return (
+                                <div key={i} className={`ludo__square ${isP1 ? 'ludo__square--p1' : ''} ${isP2 ? 'ludo__square--p2' : ''}`}>
+                                    <span className="ludo__square-num">{i + 1}</span>
+                                    {isP1 && <div className="ludo__token ludo__token--p1"><Icon name="heart" size={12} /></div>}
+                                    {isP2 && <div className="ludo__token ludo__token--p2"><Icon name="star" size={12} /></div>}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 {/* Dice */}
-                {!gameOver && (
-                    <div className="ludo__dice-area animate-fade-in-up delay-2">
-                        <div className="ludo__turn-label">
-                            {currentPlayer.avatar} {currentPlayer.name}'s turn
+                <div className="game__dice-area">
+                    <button
+                        className={`game__dice-btn ${isMyTurn ? 'game__dice-btn--active' : ''}`}
+                        onClick={rollDice}
+                        disabled={!isMyTurn || gameOver}
+                    >
+                        <Icon name="dice" size={28} />
+                        <span>{diceValue || '?'}</span>
+                    </button>
+                </div>
+
+                {/* Current square prompt */}
+                {currentSquare && (
+                    <div className="game__prompt glass-card">
+                        <div className="game__prompt-type">
+                            <Icon name={currentSquare.type === 'dare' ? 'flame' : 'target'} size={18} />
+                            <span>{currentSquare.type?.toUpperCase() || 'PROMPT'}</span>
                         </div>
-                        <button
-                            className={`ludo__dice-btn ${rolling ? 'ludo__dice-btn--rolling' : ''}`}
-                            onClick={currentTurn === 0 ? handleRoll : handlePartnerRoll}
-                            disabled={rolling || showPrompt}
-                        >
-                            {diceValue ? diceEmojis[diceValue - 1] : '🎲'}
-                        </button>
-                        {diceValue && !rolling && <div className="ludo__dice-value">Rolled a {diceValue}!</div>}
+                        <p className="game__prompt-text">{currentSquare.text}</p>
                     </div>
                 )}
 
-                {/* Square prompt */}
-                {showPrompt && activeSquare && (
-                    <div className="ludo__prompt glass-card animate-scale-in">
-                        <div className="ludo__prompt-type" style={{ color: squareColors[activeSquare.type] }}>
-                            {activeSquare.type.toUpperCase()} {'🔥'.repeat(activeSquare.heat)}
-                        </div>
-                        <p className="ludo__prompt-text font-story">{activeSquare.text}</p>
-                        {playerPos === partnerPos && playerPos > 0 && currentTurn === 0 && (
-                            <div className="ludo__bonus-dare">
-                                ⚡ You landed on {state.partnerProfile.name}'s square! They must do a bonus dare!
-                            </div>
-                        )}
-                        <button className="btn btn--primary btn--full" onClick={handlePromptDone}>
-                            Done ✓
-                        </button>
+                {/* Score */}
+                <div className="game__scores">
+                    <div className="game__score-card">
+                        <Icon name="heart" size={16} color="#e84393" />
+                        <span>{userProfile.name || 'You'}: {positions[0]}/40</span>
                     </div>
-                )}
+                    <div className="game__score-card">
+                        <Icon name="star" size={16} color="#8b5cf6" />
+                        <span>{partnerProfile.name || 'Partner'}: {positions[1]}/40</span>
+                    </div>
+                </div>
 
                 {/* Game over */}
-                {gameOver && !showPrompt && (
-                    <div className="ludo__gameover animate-scale-in">
-                        <div className="ludo__gameover-emoji">🏆</div>
-                        <h2 className="font-story">{currentPlayer.name} finished first!</h2>
-                        <p>But let's be honest... you both won tonight. 😏</p>
-                        <button className="btn btn--primary btn--full" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ marginTop: '1.5rem' }}>
-                            Back to Lobby 🔥
+                {gameOver && (
+                    <div className="game__over glass-card">
+                        <Icon name="trophy" size={40} color="#ffd700" />
+                        <h3>{positions[0] >= 39 ? userProfile.name : partnerProfile.name} wins!</h3>
+                        <button className="btn btn--primary" onClick={resetGame}>
+                            <Icon name="refresh" size={16} />
+                            <span>Play Again</span>
                         </button>
                     </div>
                 )}

@@ -1,81 +1,85 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useGame } from '../engine/gameState';
-import { spinWheelOptions } from '../data/games-data';
+import Icon from './ui/Icons';
+
+const WHEEL_ITEMS = [
+    { label: 'Kiss Session', color: '#e84393', score: 30 },
+    { label: 'Massage', color: '#8b5cf6', score: 25 },
+    { label: 'Truth Round', color: '#ff6b35', score: 20 },
+    { label: 'Dare Challenge', color: '#f43f5e', score: 35 },
+    { label: 'Compliment', color: '#0ea5e9', score: 15 },
+    { label: 'Dance Together', color: '#10b981', score: 20 },
+    { label: 'Story Time', color: '#7c3aed', score: 25 },
+    { label: 'Wildcard', color: '#f97316', score: 50 },
+];
 
 export default function SpinWheel() {
     const { state, dispatch } = useGame();
     const [spinning, setSpinning] = useState(false);
-    const [result, setResult] = useState(null);
     const [rotation, setRotation] = useState(0);
-    const wheelRef = useRef(null);
-
-    const segmentAngle = 360 / spinWheelOptions.length;
+    const [result, setResult] = useState(state.lastSpinResult);
+    const { spinAvailable } = state;
 
     const handleSpin = () => {
-        if (spinning) return;
+        if (spinning || !spinAvailable) return;
+
         setSpinning(true);
         setResult(null);
 
-        // Random spin: 3-5 full rotations + random position
-        const extraRotations = 3 + Math.floor(Math.random() * 3);
-        const randomAngle = Math.floor(Math.random() * 360);
-        const totalRotation = rotation + extraRotations * 360 + randomAngle;
-        setRotation(totalRotation);
+        const randomAngle = 1440 + Math.floor(Math.random() * 360);
+        setRotation(prev => prev + randomAngle);
+
+        const finalAngle = randomAngle % 360;
+        const segmentSize = 360 / WHEEL_ITEMS.length;
+        const winIndex = Math.floor((360 - finalAngle + segmentSize / 2) % 360 / segmentSize);
+        const winner = WHEEL_ITEMS[winIndex % WHEEL_ITEMS.length];
 
         setTimeout(() => {
-            // Calculate which segment it landed on
-            const normalizedAngle = totalRotation % 360;
-            const segmentIndex = Math.floor((360 - normalizedAngle) / segmentAngle) % spinWheelOptions.length;
-            setResult(spinWheelOptions[segmentIndex]);
             setSpinning(false);
-            dispatch({ type: 'USE_SPIN', payload: spinWheelOptions[segmentIndex].label });
+            setResult(winner);
+            dispatch({ type: 'USE_SPIN', payload: winner });
+            dispatch({ type: 'ADD_EMBER_SCORE', payload: winner.score });
         }, 4000);
     };
 
-    const handleGo = () => {
-        if (result) {
-            dispatch({ type: 'SET_SCREEN', payload: result.screen });
-        }
-    };
-
     return (
-        <div className="spin-wheel page-enter">
-            <div className="container">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ alignSelf: 'flex-start' }}>
-                    ← Back
-                </button>
-
-                <div className="spin-wheel__header animate-fade-in-up">
-                    <h1 className="spin-wheel__title font-story">🎰 Spin the Wheel</h1>
-                    <p className="spin-wheel__subtitle">Let fate decide tonight's adventure...</p>
+        <div className="screen spin-wheel">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">Spin Wheel</h2>
                 </div>
 
                 {/* Wheel */}
-                <div className="spin-wheel__container animate-fade-in-up delay-1">
-                    <div className="spin-wheel__pointer">▼</div>
+                <div className="spin__container">
+                    <div className="spin__pointer">
+                        <Icon name="arrow-down" size={24} color="#e84393" />
+                    </div>
                     <div
-                        ref={wheelRef}
-                        className="spin-wheel__wheel"
+                        className="spin__wheel"
                         style={{
                             transform: `rotate(${rotation}deg)`,
                             transition: spinning ? 'transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99)' : 'none',
                         }}
                     >
-                        {spinWheelOptions.map((opt, i) => {
-                            const angle = i * segmentAngle;
+                        {WHEEL_ITEMS.map((item, i) => {
+                            const angle = (360 / WHEEL_ITEMS.length) * i;
                             return (
                                 <div
-                                    key={opt.label}
-                                    className="spin-wheel__segment"
+                                    key={i}
+                                    className="spin__segment"
                                     style={{
-                                        '--segment-rotation': `${angle}deg`,
-                                        '--segment-color': opt.color,
-                                        '--segment-angle': `${segmentAngle}deg`,
+                                        transform: `rotate(${angle}deg)`,
+                                        borderColor: `${item.color} transparent transparent transparent`,
                                     }}
                                 >
-                                    <span className="spin-wheel__segment-content">
-                                        <span className="spin-wheel__segment-emoji">{opt.emoji}</span>
-                                        <span className="spin-wheel__segment-label">{opt.label}</span>
+                                    <span
+                                        className="spin__segment-label"
+                                        style={{ transform: `rotate(${360 / WHEEL_ITEMS.length / 2}deg)` }}
+                                    >
+                                        {item.label}
                                     </span>
                                 </div>
                             );
@@ -84,28 +88,22 @@ export default function SpinWheel() {
                 </div>
 
                 {/* Spin button */}
-                {!result && (
-                    <button
-                        className={`spin-wheel__spin-btn btn btn--primary btn--large ${spinning ? 'spin-wheel__spin-btn--spinning' : ''}`}
-                        onClick={handleSpin}
-                        disabled={spinning}
-                    >
-                        {spinning ? 'Spinning...' : 'SPIN! 🎲'}
-                    </button>
-                )}
+                <button
+                    className={`btn btn--primary btn--lg ${!spinAvailable ? 'btn--disabled' : ''}`}
+                    onClick={handleSpin}
+                    disabled={spinning || !spinAvailable}
+                    style={{ width: '100%', marginTop: 24 }}
+                >
+                    <Icon name="wheel" size={20} />
+                    <span>{spinning ? 'Spinning...' : !spinAvailable ? 'Already Spun' : 'Spin!'}</span>
+                </button>
 
                 {/* Result */}
                 {result && (
-                    <div className="spin-wheel__result animate-scale-in">
-                        <div className="spin-wheel__result-emoji">{result.emoji}</div>
-                        <h2 className="spin-wheel__result-title font-story">{result.label}</h2>
-                        <p className="spin-wheel__result-desc">Tonight's destiny has spoken!</p>
-                        <button className="btn btn--primary btn--full btn--large" onClick={handleGo} style={{ marginTop: '1.5rem' }}>
-                            Let's Go! 🔥
-                        </button>
-                        <button className="btn btn--ghost" onClick={() => { setResult(null); dispatch({ type: 'RESET_SPIN' }); }} style={{ marginTop: '0.5rem' }}>
-                            Spin Again
-                        </button>
+                    <div className="game__prompt glass-card" style={{ marginTop: 24, textAlign: 'center' }}>
+                        <Icon name="trophy" size={32} color={result.color} />
+                        <h3 style={{ marginTop: 8 }}>{result.label}</h3>
+                        <p className="game__prompt-text">+{result.score} ember points!</p>
                     </div>
                 )}
             </div>

@@ -6,14 +6,16 @@ const initialState = {
     // Navigation
     screen: 'landing',
 
-    // Pairing
-    pairCode: null,
-    paired: false,
+    // Identity & Room
+    userId: null,
+    roomId: null,
+    roomCode: null,
+    connectionStatus: 'disconnected', // disconnected | connecting | connected
 
     // Profiles
     userProfile: {
         name: '',
-        avatar: '🌙',
+        avatarId: 'av-01',
         gender: '',
         pronouns: 'they',
         bio: '',
@@ -25,7 +27,7 @@ const initialState = {
     },
     partnerProfile: {
         name: '',
-        avatar: '⭐',
+        avatarId: 'av-02',
         gender: '',
         pronouns: 'they',
         bio: '',
@@ -45,7 +47,7 @@ const initialState = {
     mood: null,
     partnerMood: null,
 
-    // Progress (simple, no XP)
+    // Progress
     emberScore: 0,
     streak: 0,
     lastPlayed: null,
@@ -57,12 +59,12 @@ const initialState = {
     // Communication
     chatMessages: [],
     callActive: false,
-    callType: null, // 'voice' | 'video'
+    callType: null,
 
     // Board games
-    activeGame: null, // 'ludo' | 'snakes' | 'monopoly' | 'truth-dare' | 'strip-quiz'
+    activeGame: null,
     ludoState: {
-        positions: [0, 0], // [player, partner]
+        positions: [0, 0],
         currentTurn: 0,
         diceValue: null,
         currentSquare: null,
@@ -95,10 +97,7 @@ const initialState = {
     stripQuizState: {
         round: 0,
         currentTurn: 0,
-        clothing: [
-            ['👒', '👕', '👖', '🧦', '🩲'],
-            ['👒', '👕', '👖', '🧦', '🩲'],
-        ],
+        clothingRemoved: [0, 0],
     },
 
     // Spin wheel
@@ -121,6 +120,24 @@ function gameReducer(state, action) {
         case 'SET_SCREEN':
             return { ...state, screen: action.payload };
 
+        // Identity & Room
+        case 'SET_USER_ID':
+            return { ...state, userId: action.payload };
+
+        case 'SET_ROOM':
+            return {
+                ...state,
+                roomId: action.payload.roomId,
+                roomCode: action.payload.roomCode,
+            };
+
+        case 'SET_CONNECTION_STATUS':
+            return { ...state, connectionStatus: action.payload };
+
+        case 'SET_PARTNER_ONLINE':
+            return { ...state, partnerOnline: action.payload };
+
+        // Profiles
         case 'SET_USER_PROFILE':
             return {
                 ...state,
@@ -131,30 +148,6 @@ function gameReducer(state, action) {
             return {
                 ...state,
                 partnerProfile: { ...state.partnerProfile, ...action.payload },
-                paired: true,
-            };
-
-        case 'GENERATE_PAIR_CODE':
-            return { ...state, pairCode: action.payload };
-
-        case 'JOIN_PAIR':
-            return {
-                ...state,
-                paired: true,
-                partnerProfile: {
-                    ...state.partnerProfile,
-                    name: action.payload.name || 'Your Partner',
-                    avatar: action.payload.avatar || '⭐',
-                    gender: action.payload.gender || '',
-                    pronouns: action.payload.pronouns || 'they',
-                    bio: action.payload.bio || '',
-                    loveLang: action.payload.loveLang || '',
-                    turnOn: action.payload.turnOn || '',
-                    secretFantasy: action.payload.secretFantasy || '',
-                    preferences: action.payload.preferences || [],
-                    heatLevel: action.payload.heatLevel || 2,
-                },
-                partnerOnline: true,
             };
 
         case 'ADD_PREFERENCE':
@@ -174,6 +167,7 @@ function gameReducer(state, action) {
                 userProfile: { ...state.userProfile, heatLevel: action.payload },
             };
 
+        // Mood
         case 'SET_MOOD':
             return { ...state, mood: action.payload };
 
@@ -247,22 +241,22 @@ function gameReducer(state, action) {
             return { ...state, compatibilityScore: Math.max(score, 42) };
         }
 
-        // Chat actions
-        case 'SEND_MESSAGE':
+        // Chat
+        case 'ADD_MESSAGE':
             return {
                 ...state,
                 chatMessages: [...state.chatMessages, action.payload],
             };
 
+        case 'LOAD_MESSAGES':
+            return { ...state, chatMessages: action.payload };
+
         case 'CLEAR_CHAT':
             return { ...state, chatMessages: [] };
 
-        // Call actions
-        case 'START_CALL':
-            return { ...state, callActive: true, callType: action.payload };
-
-        case 'END_CALL':
-            return { ...state, callActive: false, callType: null };
+        // Call
+        case 'SET_CALL':
+            return { ...state, callActive: action.payload.active, callType: action.payload.type || null };
 
         // Board game actions
         case 'SET_ACTIVE_GAME':
@@ -317,8 +311,15 @@ function gameReducer(state, action) {
         case 'ADD_EMBER_SCORE':
             return { ...state, emberScore: state.emberScore + action.payload };
 
+        // Sync from partner
+        case 'SYNC_GAME_STATE':
+            return { ...state, ...action.payload };
+
         case 'LOAD_STATE':
             return { ...state, ...action.payload };
+
+        case 'RESET_ALL':
+            return { ...initialState };
 
         default:
             return state;
@@ -328,10 +329,20 @@ function gameReducer(state, action) {
 export function GameProvider({ children }) {
     const [state, dispatch] = useReducer(gameReducer, initialState, (init) => {
         try {
-            const saved = localStorage.getItem('ember-state');
+            const saved = localStorage.getItem('garf-state');
             if (saved) {
                 const parsed = JSON.parse(saved);
-                return { ...init, ...parsed };
+                // Only restore critical persistent state
+                return {
+                    ...init,
+                    userId: parsed.userId || null,
+                    userProfile: parsed.userProfile || init.userProfile,
+                    emberScore: parsed.emberScore || 0,
+                    streak: parsed.streak || 0,
+                    storiesCompleted: parsed.storiesCompleted || [],
+                    dailyRewardDay: parsed.dailyRewardDay || 0,
+                    lastRewardDate: parsed.lastRewardDate || null,
+                };
             }
         } catch (e) { /* ignore */ }
         return init;
@@ -339,10 +350,19 @@ export function GameProvider({ children }) {
 
     useEffect(() => {
         try {
-            const { reactions, ...saveable } = state;
-            localStorage.setItem('ember-state', JSON.stringify(saveable));
+            // Only persist minimal critical data locally
+            const toSave = {
+                userId: state.userId,
+                userProfile: state.userProfile,
+                emberScore: state.emberScore,
+                streak: state.streak,
+                storiesCompleted: state.storiesCompleted,
+                dailyRewardDay: state.dailyRewardDay,
+                lastRewardDate: state.lastRewardDate,
+            };
+            localStorage.setItem('garf-state', JSON.stringify(toSave));
         } catch (e) { /* ignore */ }
-    }, [state]);
+    }, [state.userId, state.userProfile, state.emberScore, state.streak, state.storiesCompleted, state.dailyRewardDay]);
 
     return (
         <GameContext.Provider value={{ state, dispatch }}>

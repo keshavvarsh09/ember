@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useGame } from '../engine/gameState';
 import { getRandomDare, getDaresByHeat } from '../data/dares';
 import { tiers } from '../data/categories';
+import { sendGameEvent } from '../lib/realtimeManager';
+import Icon from './ui/Icons';
+
+const heatIcons = ['', 'heart', 'flame', 'fire', 'zap', 'star'];
 
 export default function DareChallenge() {
     const { state, dispatch } = useGame();
     const [currentDare, setCurrentDare] = useState(null);
     const [heatFilter, setHeatFilter] = useState(state.userProfile.heatLevel || 2);
-    const [phase, setPhase] = useState('browse'); // browse | active | completed
+    const [phase, setPhase] = useState('browse');
     const [timeLeft, setTimeLeft] = useState(0);
 
     useEffect(() => {
@@ -26,12 +30,14 @@ export default function DareChallenge() {
 
     const handleAcceptDare = () => {
         setPhase('active');
-        setTimeLeft(60); // 60 second timer for dare
+        setTimeLeft(60);
+        sendGameEvent('dare_accepted', { dare: currentDare, from: state.userId });
     };
 
     const handleCompleteDare = () => {
         setPhase('completed');
         dispatch({ type: 'COMPLETE_STORY', payload: { score: currentDare.heat * 15 } });
+        sendGameEvent('dare_completed', { dare: currentDare, from: state.userId });
     };
 
     const handleNewDare = () => {
@@ -46,21 +52,21 @@ export default function DareChallenge() {
     };
 
     return (
-        <div className="dare page-enter">
-            <div className="container">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
-                    ← Back
-                </button>
-
-                <div className="dare__header animate-fade-in-up">
-                    <h2 className="dare__title font-story">
-                        <span className="text-gradient">Dare</span> Mode 🎯
+        <div className="screen dare-challenge">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">
+                        <Icon name="target" size={20} /> Dare Mode
                     </h2>
-                    <p className="dare__subtitle">Accept the dare. Do it. Both of you.</p>
                 </div>
 
+                <p className="screen__subtitle">Accept the dare. Do it. Both of you.</p>
+
                 {/* Heat filter */}
-                <div className="dare__heat-filter animate-fade-in-up delay-1">
+                <div className="dare__heat-filter">
                     <span className="dare__heat-label">Max Heat:</span>
                     <div className="dare__heat-options">
                         {tiers.map((tier) => (
@@ -70,7 +76,7 @@ export default function DareChallenge() {
                                 style={{ color: heatFilter >= tier.id ? tier.color : undefined }}
                                 onClick={() => setHeatFilter(tier.id)}
                             >
-                                {tier.emoji}
+                                <Icon name={heatIcons[tier.id] || 'heart'} size={16} />
                             </button>
                         ))}
                     </div>
@@ -78,18 +84,22 @@ export default function DareChallenge() {
 
                 {/* Browse Phase */}
                 {phase === 'browse' && currentDare && (
-                    <div className="dare__card glass-card animate-scale-in" key={currentDare.id}>
-                        <div className="dare__card-heat">
-                            {'🔥'.repeat(currentDare.heat)}
-                            <span className="dare__card-heat-label">Heat {currentDare.heat}/5</span>
+                    <div className="game__prompt glass-card animate-scale-in" key={currentDare.id}>
+                        <div className="game__prompt-type">
+                            {Array.from({ length: currentDare.heat }).map((_, i) => (
+                                <Icon key={i} name="flame" size={16} color="#e84393" />
+                            ))}
+                            <span>Heat {currentDare.heat}/5</span>
                         </div>
-                        <p className="dare__card-text font-story">{currentDare.text}</p>
-                        <div className="dare__card-actions">
-                            <button className="btn btn--primary btn--large btn--full" onClick={handleAcceptDare}>
-                                Accept Dare 🎯
+                        <p className="game__prompt-text">{currentDare.text}</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
+                            <button className="btn btn--primary" onClick={handleAcceptDare}>
+                                <Icon name="target" size={16} />
+                                <span>Accept Dare</span>
                             </button>
-                            <button className="btn btn--secondary btn--full" onClick={handleNewDare} style={{ marginTop: '0.75rem' }}>
-                                Shuffle 🎲
+                            <button className="btn btn--secondary" onClick={handleNewDare}>
+                                <Icon name="dice" size={16} />
+                                <span>Shuffle</span>
                             </button>
                         </div>
                     </div>
@@ -97,9 +107,9 @@ export default function DareChallenge() {
 
                 {/* Active Phase */}
                 {phase === 'active' && currentDare && (
-                    <div className="dare__active animate-fade-in">
-                        <div className="dare__timer">
-                            <svg viewBox="0 0 120 120" className="dare__timer-svg">
+                    <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+                        <div className="dare__timer" style={{ marginTop: 32 }}>
+                            <svg viewBox="0 0 120 120" style={{ width: 140, height: 140 }}>
                                 <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="6" />
                                 <circle
                                     cx="60" cy="60" r="52"
@@ -119,23 +129,27 @@ export default function DareChallenge() {
                             </svg>
                             <div className="dare__timer-value">{formatTime(timeLeft)}</div>
                         </div>
-                        <p className="dare__active-text font-story">{currentDare.text}</p>
-                        <button className="btn btn--primary btn--large btn--full" onClick={handleCompleteDare} style={{ marginTop: '2rem' }}>
-                            Done! ✓
+                        <p className="game__prompt-text" style={{ marginTop: 16 }}>{currentDare.text}</p>
+                        <button className="btn btn--primary" onClick={handleCompleteDare} style={{ marginTop: 24 }}>
+                            <Icon name="check" size={16} />
+                            <span>Done!</span>
                         </button>
                     </div>
                 )}
 
                 {/* Completed Phase */}
                 {phase === 'completed' && (
-                    <div className="dare__completed animate-scale-in">
-                        <div className="dare__completed-icon">✨</div>
-                        <h3 className="font-story dare__completed-title">Dare Complete!</h3>
-                        <p className="dare__completed-score">+{currentDare.heat * 15} 🔥</p>
-                        <button className="btn btn--primary btn--full" onClick={handleNewDare} style={{ marginTop: '1.5rem' }}>
-                            Another Dare 🎲
+                    <div className="animate-scale-in" style={{ textAlign: 'center', marginTop: 48 }}>
+                        <Icon name="sparkle" size={48} color="#ffd700" />
+                        <h3 style={{ marginTop: 16 }}>Dare Complete!</h3>
+                        <p className="game__prompt-text">
+                            +{currentDare.heat * 15} <Icon name="fire" size={16} color="#ff6b35" />
+                        </p>
+                        <button className="btn btn--primary" onClick={handleNewDare} style={{ marginTop: 24 }}>
+                            <Icon name="dice" size={16} />
+                            <span>Another Dare</span>
                         </button>
-                        <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ marginTop: '0.5rem' }}>
+                        <button className="btn btn--secondary" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ marginTop: 12 }}>
                             Back to Lobby
                         </button>
                     </div>

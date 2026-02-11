@@ -1,387 +1,455 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useGame } from '../engine/gameState';
+import { supabase } from '../lib/supabaseClient';
+import useRoom from '../hooks/useRoom';
+import Icon from './ui/Icons';
+import Avatar, { AvatarPicker } from './ui/Avatar';
 
-function generatePairCode() {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let code = '';
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    return code;
-}
-
-const avatars = ['🌙', '⭐', '🔥', '💜', '🌹', '✨', '💎', '🦋', '🌊', '🖤', '💫', '🍷'];
-const genderOptions = [
-    { id: 'he', label: 'He / Him', emoji: '♂️' },
-    { id: 'she', label: 'She / Her', emoji: '♀️' },
-    { id: 'they', label: 'They / Them', emoji: '⚧️' },
-    { id: 'custom', label: 'Custom', emoji: '✨' },
+const GENDERS = [
+    { id: 'he', label: 'He / Him', icon: 'user' },
+    { id: 'she', label: 'She / Her', icon: 'user' },
+    { id: 'they', label: 'They / Them', icon: 'users' },
+    { id: 'custom', label: 'Custom', icon: 'sparkle' },
 ];
-const loveLanguages = [
-    { id: 'words', label: 'Words of Affirmation', emoji: '💬' },
-    { id: 'touch', label: 'Physical Touch', emoji: '🤲' },
-    { id: 'gifts', label: 'Receiving Gifts', emoji: '🎁' },
-    { id: 'time', label: 'Quality Time', emoji: '⏰' },
-    { id: 'acts', label: 'Acts of Service', emoji: '💝' },
+
+const LOVE_LANGS = [
+    { id: 'touch', label: 'Physical Touch' },
+    { id: 'words', label: 'Words of Affirmation' },
+    { id: 'acts', label: 'Acts of Service' },
+    { id: 'gifts', label: 'Receiving Gifts' },
+    { id: 'time', label: 'Quality Time' },
 ];
 
 export default function Onboarding() {
     const { state, dispatch } = useGame();
-    const [step, setStep] = useState(1);
+    const [step, setStep] = useState(0);
     const [name, setName] = useState(state.userProfile.name || '');
     const [gender, setGender] = useState(state.userProfile.gender || '');
     const [customGender, setCustomGender] = useState('');
-    const [avatar, setAvatar] = useState(state.userProfile.avatar || '🌙');
-    const [bio, setBio] = useState('');
-    const [loveLang, setLoveLang] = useState('');
-    const [turnOn, setTurnOn] = useState('');
-    const [secretFantasy, setSecretFantasy] = useState('');
-    const [mode, setMode] = useState(null);
+    const [avatarId, setAvatarId] = useState(state.userProfile.avatarId || 'av-01');
+    const [bio, setBio] = useState(state.userProfile.bio || '');
+    const [loveLang, setLoveLang] = useState(state.userProfile.loveLang || '');
+    const [turnOn, setTurnOn] = useState(state.userProfile.turnOn || '');
+    const [fantasy, setFantasy] = useState(state.userProfile.secretFantasy || '');
+    const [pairMode, setPairMode] = useState(null);
     const [joinCode, setJoinCode] = useState('');
-    const [partnerName, setPartnerName] = useState('');
-    const [partnerGender, setPartnerGender] = useState('');
     const [error, setError] = useState('');
+    const [partnerJoined, setPartnerJoined] = useState(false);
+    const [partnerData, setPartnerData] = useState(null);
 
-    const totalSteps = 7;
+    // Create userId on mount if none
+    useEffect(() => {
+        if (!state.userId) {
+            const id = crypto.randomUUID();
+            dispatch({ type: 'SET_USER_ID', payload: id });
+        }
+    }, []);
 
-    const handleStep1 = () => {
-        if (name.trim().length < 2) { setError('Enter at least 2 characters'); return; }
-        if (!gender) { setError('Please select your gender'); return; }
+    const userId = state.userId || crypto.randomUUID();
+
+    const room = useRoom(userId, {
+        name,
+        avatar_id: avatarId,
+    });
+
+    // Listen for partner events
+    useEffect(() => {
+        room.on('onPartnerJoin', (partner) => {
+            setPartnerJoined(true);
+            setPartnerData(partner);
+        });
+
+        room.on('onRoomPaired', async (roomData) => {
+            if (roomData.partner_id) {
+                setPartnerJoined(true);
+                // Fetch partner profile
+                const { data } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', roomData.partner_id)
+                    .single();
+                if (data) {
+                    setPartnerData(data);
+                    dispatch({
+                        type: 'SET_PARTNER_PROFILE',
+                        payload: {
+                            name: data.name,
+                            avatarId: data.avatar_id,
+                            gender: data.gender,
+                            pronouns: data.pronouns,
+                            bio: data.bio,
+                            loveLang: data.love_lang,
+                            turnOn: data.turn_on,
+                            secretFantasy: data.fantasy,
+                        },
+                    });
+                }
+            }
+        });
+    }, [room]);
+
+    // Save profile to Supabase
+    const saveProfile = async () => {
+        const profile = {
+            id: userId,
+            name,
+            avatar_id: avatarId,
+            gender: gender === 'custom' ? customGender : gender,
+            pronouns: gender === 'he' ? 'he' : gender === 'she' ? 'she' : 'they',
+            bio,
+            love_lang: loveLang,
+            turn_on: turnOn,
+            fantasy,
+            heat_level: state.userProfile.heatLevel,
+            preferences: state.userProfile.preferences,
+        };
+
+        const { error: err } = await supabase
+            .from('profiles')
+            .upsert(profile, { onConflict: 'id' });
+
+        if (err) console.error('Profile save error:', err);
+
         dispatch({
             type: 'SET_USER_PROFILE',
             payload: {
-                name: name.trim(),
+                name,
+                avatarId,
                 gender: gender === 'custom' ? customGender : gender,
-                pronouns: gender === 'he' ? 'he' : gender === 'she' ? 'she' : 'they',
+                pronouns: profile.pronouns,
+                bio,
+                loveLang: loveLang,
+                turnOn,
+                secretFantasy: fantasy,
             },
         });
-        setError('');
-        setStep(2);
     };
 
-    const handleStep2 = () => {
-        dispatch({ type: 'SET_USER_PROFILE', payload: { avatar } });
-        setStep(3);
+    // Handle room creation
+    const handleCreateRoom = async () => {
+        await saveProfile();
+        const result = await room.createRoom();
+        if (result) {
+            dispatch({ type: 'SET_ROOM', payload: { roomId: result.roomId, roomCode: result.code } });
+            setStep(5);
+        }
     };
 
-    const handleStep3 = () => {
-        if (!loveLang) { setError('Pick your love language'); return; }
-        dispatch({
-            type: 'SET_USER_PROFILE',
-            payload: { bio, loveLang, turnOn, secretFantasy },
-        });
-        setError('');
-        setStep(4);
+    // Handle room joining
+    const handleJoinRoom = async () => {
+        if (joinCode.length < 6) {
+            setError('Enter the complete 6-character code');
+            return;
+        }
+        await saveProfile();
+        const result = await room.joinRoom(joinCode);
+        if (result) {
+            dispatch({ type: 'SET_ROOM', payload: { roomId: result.roomId, roomCode: result.code } });
+
+            // Fetch creator profile
+            const { data } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', result.creatorId)
+                .single();
+
+            if (data) {
+                setPartnerData(data);
+                setPartnerJoined(true);
+                dispatch({
+                    type: 'SET_PARTNER_PROFILE',
+                    payload: {
+                        name: data.name,
+                        avatarId: data.avatar_id,
+                        gender: data.gender,
+                        pronouns: data.pronouns,
+                        bio: data.bio,
+                        loveLang: data.love_lang,
+                        turnOn: data.turn_on,
+                        secretFantasy: data.fantasy,
+                    },
+                });
+            }
+            setStep(6);
+        } else {
+            setError(room.error || 'Could not join room');
+        }
     };
 
-    const handleCreateRoom = () => {
-        const code = generatePairCode();
-        dispatch({ type: 'GENERATE_PAIR_CODE', payload: code });
-        setMode('create');
-        setStep(5);
-    };
-
-    const handleJoinRoom = () => {
-        setMode('join');
-        setStep(5);
-    };
-
-    const handleJoinSubmit = () => {
-        if (joinCode.trim().length < 4) { setError('Enter a valid pair code'); return; }
-        setError('');
-        setStep(6);
-    };
-
-    const simulatePartnerJoin = () => {
-        setStep(6);
-    };
-
-    const handlePartnerSetup = () => {
-        dispatch({
-            type: 'JOIN_PAIR',
-            payload: {
-                name: partnerName || 'Your Partner',
-                gender: partnerGender,
-                pronouns: partnerGender === 'he' ? 'he' : partnerGender === 'she' ? 'she' : 'they',
-            },
-        });
+    // Proceed to lobby
+    const goToLobby = () => {
+        dispatch({ type: 'SET_CONNECTION_STATUS', payload: 'connected' });
+        dispatch({ type: 'SET_PARTNER_ONLINE', payload: true });
         dispatch({ type: 'SET_SCREEN', payload: 'profile' });
     };
 
+    const canProceed = () => {
+        switch (step) {
+            case 0: return name.trim().length >= 2;
+            case 1: return !!avatarId;
+            case 2: return gender !== '' && (gender !== 'custom' || customGender.trim());
+            case 3: return true; // profile fields optional
+            case 4: return pairMode !== null;
+            default: return true;
+        }
+    };
+
+    const nextStep = () => {
+        if (step === 4 && pairMode === 'create') {
+            handleCreateRoom();
+            return;
+        }
+        setStep(s => s + 1);
+    };
+
     return (
-        <div className="onboarding page-enter">
-            <div className="container">
+        <div className="screen onboarding">
+            <div className="screen__content">
                 {/* Progress dots */}
                 <div className="onboarding__progress">
-                    {Array.from({ length: totalSteps }, (_, i) => i + 1).map((s) => (
+                    {[0, 1, 2, 3, 4, 5, 6].map(i => (
                         <div
-                            key={s}
-                            className={`onboarding__dot ${s === step ? 'onboarding__dot--active' : ''} ${s < step ? 'onboarding__dot--done' : ''}`}
+                            key={i}
+                            className={`onboarding__dot ${i === step ? 'onboarding__dot--active' : ''} ${i < step ? 'onboarding__dot--done' : ''}`}
                         />
                     ))}
                 </div>
 
-                {/* Step 1: Name + Gender */}
-                {step === 1 && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">✨</div>
-                        <h2 className="onboarding__title font-story">Who are you?</h2>
-                        <p className="onboarding__subtitle">Your partner will see this. Make it count.</p>
-
-                        <div className="input-group">
-                            <input
-                                className="input-field"
-                                type="text"
-                                placeholder="Your name or nickname..."
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                onKeyDown={(e) => e.key === 'Enter' && handleStep1()}
-                                autoFocus
-                                maxLength={20}
-                            />
-                        </div>
-
-                        <div className="onboarding__gender-section">
-                            <p className="onboarding__label">I go by...</p>
-                            <div className="onboarding__gender-grid">
-                                {genderOptions.map((g) => (
-                                    <button
-                                        key={g.id}
-                                        className={`onboarding__gender-pill ${gender === g.id ? 'onboarding__gender-pill--active' : ''}`}
-                                        onClick={() => setGender(g.id)}
-                                    >
-                                        <span>{g.emoji}</span>
-                                        <span>{g.label}</span>
-                                    </button>
-                                ))}
-                            </div>
-                            {gender === 'custom' && (
-                                <input
-                                    className="input-field"
-                                    type="text"
-                                    placeholder="Your pronouns..."
-                                    value={customGender}
-                                    onChange={(e) => setCustomGender(e.target.value)}
-                                    style={{ marginTop: '0.75rem' }}
-                                />
-                            )}
-                        </div>
-
-                        {error && <p className="onboarding__error">{error}</p>}
-                        <button className="btn btn--primary btn--full" onClick={handleStep1} style={{ marginTop: '1.5rem' }}>
-                            Continue
-                        </button>
+                {/* Step 0: Name */}
+                {step === 0 && (
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">What should we call you?</h2>
+                        <p className="screen__subtitle">Your partner will see this name</p>
+                        <input
+                            className="input-field"
+                            placeholder="Your name..."
+                            value={name}
+                            onChange={e => setName(e.target.value)}
+                            maxLength={20}
+                            autoFocus
+                        />
                     </div>
                 )}
 
-                {/* Step 2: Avatar */}
+                {/* Step 1: Avatar */}
+                {step === 1 && (
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">Choose your avatar</h2>
+                        <p className="screen__subtitle">Pick the one that feels like you</p>
+                        <div style={{ marginTop: 24 }}>
+                            <AvatarPicker selected={avatarId} onSelect={setAvatarId} />
+                        </div>
+                    </div>
+                )}
+
+                {/* Step 2: Gender */}
                 {step === 2 && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">{avatar}</div>
-                        <h2 className="onboarding__title font-story">Pick your vibe</h2>
-                        <p className="onboarding__subtitle">Choose an avatar that feels like you tonight.</p>
-                        <div className="onboarding__avatar-grid">
-                            {avatars.map((a) => (
-                                <button
-                                    key={a}
-                                    className={`onboarding__avatar-btn ${a === avatar ? 'onboarding__avatar-btn--selected' : ''}`}
-                                    onClick={() => setAvatar(a)}
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">How do you identify?</h2>
+                        <div className="onboarding__gender-grid" style={{ marginTop: 24 }}>
+                            {GENDERS.map(g => (
+                                <div
+                                    key={g.id}
+                                    className={`onboarding__gender-pill ${gender === g.id ? 'onboarding__gender-pill--active' : ''}`}
+                                    onClick={() => setGender(g.id)}
                                 >
-                                    {a}
-                                </button>
+                                    <Icon name={g.icon} size={18} />
+                                    <span>{g.label}</span>
+                                </div>
                             ))}
                         </div>
-                        <button className="btn btn--primary btn--full" onClick={handleStep2} style={{ marginTop: '1.5rem' }}>
-                            Continue
-                        </button>
+                        {gender === 'custom' && (
+                            <input
+                                className="input-field"
+                                placeholder="Your pronouns..."
+                                value={customGender}
+                                onChange={e => setCustomGender(e.target.value)}
+                                style={{ marginTop: 16 }}
+                            />
+                        )}
                     </div>
                 )}
 
-                {/* Step 3: Descriptive Profile */}
+                {/* Step 3: Profile details */}
                 {step === 3 && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">🔥</div>
-                        <h2 className="onboarding__title font-story">Let's get personal</h2>
-                        <p className="onboarding__subtitle">The more you share, the better the experience. Be honest. Be bold.</p>
-
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">Tell us about you</h2>
+                        <p className="screen__subtitle">Optional — share as much as you want</p>
                         <div className="onboarding__profile-fields">
-                            <div className="input-group">
-                                <label className="onboarding__field-label">Tell your partner something they don't know...</label>
+                            <div>
+                                <label className="onboarding__field-label">Bio</label>
                                 <textarea
                                     className="input-field onboarding__textarea"
-                                    placeholder="Something secret, something vulnerable, something real..."
+                                    placeholder="A few words about yourself..."
                                     value={bio}
-                                    onChange={(e) => setBio(e.target.value)}
+                                    onChange={e => setBio(e.target.value)}
                                     maxLength={200}
-                                    rows={3}
                                 />
                                 <span className="onboarding__char-count">{bio.length}/200</span>
                             </div>
-
-                            <div className="input-group">
-                                <label className="onboarding__field-label">Your love language</label>
+                            <div>
+                                <label className="onboarding__field-label">Love Language</label>
                                 <div className="onboarding__love-lang-grid">
-                                    {loveLanguages.map((l) => (
-                                        <button
+                                    {LOVE_LANGS.map(l => (
+                                        <div
                                             key={l.id}
                                             className={`onboarding__love-pill ${loveLang === l.id ? 'onboarding__love-pill--active' : ''}`}
                                             onClick={() => setLoveLang(l.id)}
                                         >
-                                            <span>{l.emoji}</span>
+                                            <Icon name="heart" size={14} />
                                             <span>{l.label}</span>
-                                        </button>
+                                        </div>
                                     ))}
                                 </div>
                             </div>
-
-                            <div className="input-group">
-                                <label className="onboarding__field-label">The one thing that drives you wild 🔥</label>
+                            <div>
+                                <label className="onboarding__field-label">What turns you on?</label>
                                 <textarea
                                     className="input-field onboarding__textarea"
-                                    placeholder="Be specific... what makes you lose your mind?"
+                                    placeholder="Be honest... this stays between you two"
                                     value={turnOn}
-                                    onChange={(e) => setTurnOn(e.target.value)}
-                                    maxLength={150}
-                                    rows={2}
+                                    onChange={e => setTurnOn(e.target.value)}
+                                    maxLength={200}
                                 />
-                                <span className="onboarding__char-count">{turnOn.length}/150</span>
                             </div>
-
-                            <div className="input-group">
-                                <label className="onboarding__field-label">Whisper a fantasy... just between you two 🌙</label>
+                            <div>
+                                <label className="onboarding__field-label">Secret Fantasy</label>
                                 <textarea
                                     className="input-field onboarding__textarea onboarding__textarea--fantasy"
-                                    placeholder="The one you think about at 2am. No judgement. This is your safe space..."
-                                    value={secretFantasy}
-                                    onChange={(e) => setSecretFantasy(e.target.value)}
-                                    maxLength={200}
-                                    rows={3}
+                                    placeholder="Something you've never told anyone..."
+                                    value={fantasy}
+                                    onChange={e => setFantasy(e.target.value)}
+                                    maxLength={300}
                                 />
-                                <span className="onboarding__char-count">{secretFantasy.length}/200</span>
                             </div>
                         </div>
-
-                        {error && <p className="onboarding__error">{error}</p>}
-                        <button className="btn btn--primary btn--full" onClick={handleStep3} style={{ marginTop: '1rem' }}>
-                            Continue 🔥
-                        </button>
                     </div>
                 )}
 
                 {/* Step 4: Create or Join */}
                 {step === 4 && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">👥</div>
-                        <h2 className="onboarding__title font-story">Connect with your partner</h2>
-                        <p className="onboarding__subtitle">This game is for two. Let's bring them in.</p>
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">Connect with your partner</h2>
+                        <p className="screen__subtitle">Create a room or join an existing one</p>
                         <div className="onboarding__pair-options">
-                            <button className="glass-card onboarding__pair-card" onClick={handleCreateRoom}>
-                                <span className="onboarding__pair-icon">🔗</span>
-                                <span className="onboarding__pair-label">Create a Room</span>
-                                <span className="onboarding__pair-desc">Generate a code for your partner</span>
-                            </button>
-                            <button className="glass-card onboarding__pair-card" onClick={handleJoinRoom}>
-                                <span className="onboarding__pair-icon">🎟️</span>
-                                <span className="onboarding__pair-label">Join a Room</span>
-                                <span className="onboarding__pair-desc">Enter your partner's code</span>
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* Step 5: Code display or entry */}
-                {step === 5 && mode === 'create' && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">🔗</div>
-                        <h2 className="onboarding__title font-story">Your Room Code</h2>
-                        <p className="onboarding__subtitle">Share this with your partner</p>
-                        <div className="onboarding__code-display">
-                            {state.pairCode?.split('').map((c, i) => (
-                                <span key={i} className="onboarding__code-char animate-scale-in" style={{ animationDelay: `${i * 100}ms` }}>
-                                    {c}
+                            <div
+                                className={`glass-card onboarding__pair-card ${pairMode === 'create' ? 'onboarding__gender-pill--active' : ''}`}
+                                onClick={() => setPairMode('create')}
+                            >
+                                <Icon name="plus" size={32} color="#e84393" />
+                                <span className="onboarding__pair-label">Create Room</span>
+                                <span className="onboarding__pair-desc">
+                                    Get a code to share with your partner
                                 </span>
-                            ))}
-                        </div>
-                        <div className="onboarding__waiting">
-                            <div className="onboarding__pulse" />
-                            <span>Waiting for partner to join...</span>
-                        </div>
-                        <button className="btn btn--secondary btn--full" onClick={simulatePartnerJoin} style={{ marginTop: '1.5rem' }}>
-                            Partner Joined ✓ (Demo)
-                        </button>
-                    </div>
-                )}
-
-                {step === 5 && mode === 'join' && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">🎟️</div>
-                        <h2 className="onboarding__title font-story">Enter Room Code</h2>
-                        <p className="onboarding__subtitle">The code your partner shared with you</p>
-                        <div className="input-group">
-                            <input
-                                className="input-field onboarding__code-input"
-                                type="text"
-                                placeholder="XXXXXX"
-                                value={joinCode}
-                                onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-                                maxLength={6}
-                                autoFocus
-                                style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.3em', fontWeight: 700 }}
-                            />
-                        </div>
-                        {error && <p className="onboarding__error">{error}</p>}
-                        <button className="btn btn--primary btn--full" onClick={handleJoinSubmit} style={{ marginTop: '1.5rem' }}>
-                            Join Room 🔥
-                        </button>
-                    </div>
-                )}
-
-                {/* Step 6: Partner connected */}
-                {step === 6 && (
-                    <div className="onboarding__step animate-fade-in-up">
-                        <div className="onboarding__icon">💞</div>
-                        <h2 className="onboarding__title font-story">They're here!</h2>
-                        <p className="onboarding__subtitle">Tell us about your partner so we can personalize the experience.</p>
-
-                        <div className="input-group">
-                            <label className="onboarding__field-label">Partner's name</label>
-                            <input
-                                className="input-field"
-                                type="text"
-                                placeholder="Their name or nickname..."
-                                value={partnerName}
-                                onChange={(e) => setPartnerName(e.target.value)}
-                                autoFocus
-                                maxLength={20}
-                            />
-                        </div>
-
-                        <div className="onboarding__gender-section" style={{ marginTop: '1rem' }}>
-                            <label className="onboarding__field-label">They go by...</label>
-                            <div className="onboarding__gender-grid">
-                                {genderOptions.filter(g => g.id !== 'custom').map((g) => (
-                                    <button
-                                        key={g.id}
-                                        className={`onboarding__gender-pill ${partnerGender === g.id ? 'onboarding__gender-pill--active' : ''}`}
-                                        onClick={() => setPartnerGender(g.id)}
-                                    >
-                                        <span>{g.emoji}</span>
-                                        <span>{g.label}</span>
-                                    </button>
-                                ))}
+                            </div>
+                            <div
+                                className={`glass-card onboarding__pair-card ${pairMode === 'join' ? 'onboarding__gender-pill--active' : ''}`}
+                                onClick={() => setPairMode('join')}
+                            >
+                                <Icon name="link" size={32} color="#8b5cf6" />
+                                <span className="onboarding__pair-label">Join Room</span>
+                                <span className="onboarding__pair-desc">
+                                    Enter the code your partner shared
+                                </span>
                             </div>
                         </div>
 
-                        <button className="btn btn--primary btn--full" onClick={handlePartnerSetup} style={{ marginTop: '1.5rem' }}>
-                            Let's Set Up Your Tastes 🌙
-                        </button>
+                        {pairMode === 'join' && (
+                            <div style={{ marginTop: 24 }}>
+                                <input
+                                    className="input-field"
+                                    placeholder="Enter 6-character code..."
+                                    value={joinCode}
+                                    onChange={e => setJoinCode(e.target.value.toUpperCase())}
+                                    maxLength={6}
+                                    style={{ textAlign: 'center', letterSpacing: '0.3em', fontSize: '1.2rem' }}
+                                />
+                                <button
+                                    className="btn btn--primary"
+                                    onClick={handleJoinRoom}
+                                    disabled={joinCode.length < 6}
+                                    style={{ width: '100%', marginTop: 12 }}
+                                >
+                                    Join Room
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Step 7 transitions to ProfileSetup screen */}
+                {/* Step 5: Waiting for partner (creator) */}
+                {step === 5 && (
+                    <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+                        <h2 className="screen__title">Share this code</h2>
+                        <p className="screen__subtitle">Give this code to your partner</p>
 
-                {step > 1 && (
-                    <button className="btn btn--ghost" onClick={() => { setStep(step - 1); setError(''); }} style={{ marginTop: '1rem' }}>
-                        ← Back
-                    </button>
+                        <div className="onboarding__code-display">
+                            {(room.roomCode || '------').split('').map((char, i) => (
+                                <div key={i} className="onboarding__code-char">{char}</div>
+                            ))}
+                        </div>
+
+                        {!partnerJoined ? (
+                            <div className="onboarding__waiting">
+                                <div className="onboarding__pulse" />
+                                <span>Waiting for partner to join...</span>
+                            </div>
+                        ) : (
+                            <div className="animate-scale-in" style={{ marginTop: 24 }}>
+                                <Avatar id={partnerData?.avatar_id || 'av-02'} size={80} />
+                                <h3 style={{ marginTop: 12 }}>{partnerData?.name || 'Partner'} joined!</h3>
+                                <button className="btn btn--primary" onClick={goToLobby} style={{ marginTop: 16 }}>
+                                    <Icon name="arrow-right" size={18} />
+                                    <span>Continue Together</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Step 6: Partner connected (joiner) */}
+                {step === 6 && (
+                    <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+                        <div className="animate-scale-in">
+                            <Icon name="check-circle" size={64} color="#4ade80" />
+                            <h2 className="screen__title" style={{ marginTop: 16 }}>Connected!</h2>
+                            <p className="screen__subtitle">You're paired with {partnerData?.name || 'your partner'}</p>
+                            {partnerData && (
+                                <div style={{ margin: '24px 0' }}>
+                                    <Avatar id={partnerData.avatar_id || 'av-02'} size={80} />
+                                </div>
+                            )}
+                            <button className="btn btn--primary" onClick={goToLobby} style={{ marginTop: 16, width: '100%' }}>
+                                <Icon name="arrow-right" size={18} />
+                                <span>Enter GARF</span>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Error message */}
+                {error && <p className="onboarding__error">{error}</p>}
+
+                {/* Navigation buttons (steps 0-4) */}
+                {step <= 4 && step !== 5 && (
+                    <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+                        {step > 0 && (
+                            <button className="btn btn--secondary" onClick={() => setStep(s => s - 1)}>
+                                <Icon name="arrow-left" size={16} />
+                            </button>
+                        )}
+                        {!(step === 4 && pairMode === 'join') && (
+                            <button
+                                className="btn btn--primary"
+                                onClick={nextStep}
+                                disabled={!canProceed()}
+                                style={{ flex: 1 }}
+                            >
+                                {step === 4 && pairMode === 'create' ? 'Create Room' : 'Continue'}
+                                <Icon name="arrow-right" size={16} />
+                            </button>
+                        )}
+                    </div>
                 )}
             </div>
         </div>

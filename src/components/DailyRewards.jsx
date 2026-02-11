@@ -1,70 +1,95 @@
 import React from 'react';
 import { useGame } from '../engine/gameState';
-import { dailyRewards } from '../data/games-data';
+import { supabase } from '../lib/supabaseClient';
+import Icon from './ui/Icons';
+
+const REWARDS = [
+    { day: 1, label: 'Bonus Points', score: 25, icon: 'star' },
+    { day: 2, label: 'Free Spin', score: 30, icon: 'wheel' },
+    { day: 3, label: 'Dare Token', score: 35, icon: 'flame' },
+    { day: 4, label: 'Story Unlock', score: 40, icon: 'heart' },
+    { day: 5, label: 'Game Boost', score: 45, icon: 'zap' },
+    { day: 6, label: 'Mystery Box', score: 50, icon: 'gift' },
+    { day: 7, label: 'Grand Prize', score: 100, icon: 'trophy' },
+];
 
 export default function DailyRewards() {
     const { state, dispatch } = useGame();
+    const { dailyRewardDay, dailyRewardClaimed, userId } = state;
 
-    const currentDay = state.dailyRewardDay % 7;
-    const canClaim = !state.dailyRewardClaimed;
+    const claimReward = async () => {
+        if (dailyRewardClaimed) return;
 
-    // Check if it's a new day
-    const isNewDay = () => {
-        if (!state.lastRewardDate) return true;
-        const last = new Date(state.lastRewardDate).toDateString();
-        const today = new Date().toDateString();
-        return last !== today;
-    };
+        const currentReward = REWARDS[dailyRewardDay % 7];
+        dispatch({ type: 'CLAIM_DAILY_REWARD', payload: { bonus: currentReward.score } });
 
-    const handleClaim = (day) => {
-        if (!canClaim || day !== currentDay) return;
-        const reward = dailyRewards[day];
-        dispatch({ type: 'CLAIM_DAILY_REWARD', payload: { bonus: reward.bonus } });
+        // Persist to Supabase
+        try {
+            await supabase.from('daily_rewards').insert({
+                profile_id: userId,
+                day: dailyRewardDay + 1,
+                streak: dailyRewardDay + 1,
+            });
+        } catch (e) { /* ignore */ }
     };
 
     return (
-        <div className="daily-rewards page-enter">
-            <div className="container">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ alignSelf: 'flex-start' }}>
-                    ← Back
-                </button>
-
-                <div className="daily-rewards__header animate-fade-in-up">
-                    <h1 className="daily-rewards__title font-story">🎁 Daily Rewards</h1>
-                    <p className="daily-rewards__subtitle">Come back every day. The rewards get better.</p>
-                    <div className="daily-rewards__streak">
-                        🔥 {state.streak} day streak
-                    </div>
+        <div className="screen daily-rewards">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">Daily Rewards</h2>
                 </div>
 
-                <div className="daily-rewards__grid animate-fade-in-up delay-1">
-                    {dailyRewards.map((reward, i) => {
-                        const isClaimed = i < currentDay;
-                        const isCurrent = i === currentDay;
-                        const isLocked = i > currentDay;
+                <p className="screen__subtitle" style={{ marginBottom: 24 }}>
+                    Day {dailyRewardDay + 1} of 7 — claim your reward!
+                </p>
+
+                {/* Reward calendar */}
+                <div className="rewards__calendar">
+                    {REWARDS.map((reward, i) => {
+                        const isClaimed = i < dailyRewardDay;
+                        const isCurrent = i === dailyRewardDay;
+                        const isLocked = i > dailyRewardDay;
 
                         return (
-                            <button
+                            <div
                                 key={i}
-                                className={`daily-rewards__card glass-card ${isClaimed ? 'daily-rewards__card--claimed' : ''} ${isCurrent ? 'daily-rewards__card--current' : ''} ${isLocked ? 'daily-rewards__card--locked' : ''}`}
-                                onClick={() => handleClaim(i)}
-                                disabled={!isCurrent || !canClaim}
+                                className={`rewards__day glass-card ${isClaimed ? 'rewards__day--claimed' : ''} ${isCurrent ? 'rewards__day--current' : ''} ${isLocked ? 'rewards__day--locked' : ''}`}
+                                onClick={isCurrent && !dailyRewardClaimed ? claimReward : undefined}
                             >
-                                <span className="daily-rewards__day">Day {reward.day}</span>
-                                <span className="daily-rewards__emoji">{reward.emoji}</span>
-                                <span className="daily-rewards__reward-text">{reward.reward}</span>
-                                <span className="daily-rewards__bonus">+{reward.bonus} 🔥</span>
-                                {isClaimed && <span className="daily-rewards__check">✓</span>}
-                                {isCurrent && canClaim && <span className="daily-rewards__claim-badge">CLAIM!</span>}
-                                {isLocked && <span className="daily-rewards__lock">🔒</span>}
-                            </button>
+                                <span className="rewards__day-num">Day {reward.day}</span>
+                                <div className="rewards__day-icon">
+                                    {isClaimed ? (
+                                        <Icon name="check-circle" size={28} color="#4ade80" />
+                                    ) : isLocked ? (
+                                        <Icon name="lock" size={28} color="rgba(255,255,255,0.2)" />
+                                    ) : (
+                                        <Icon name={reward.icon} size={28} color={isCurrent ? '#e84393' : '#fff'} />
+                                    )}
+                                </div>
+                                <span className="rewards__day-label">{reward.label}</span>
+                                <span className="rewards__day-score">+{reward.score}</span>
+                            </div>
                         );
                     })}
                 </div>
 
-                {!canClaim && (
-                    <div className="daily-rewards__claimed-msg animate-fade-in-up delay-2">
-                        <p>✨ Today's reward claimed! Come back tomorrow for more.</p>
+                {/* Claim button */}
+                {!dailyRewardClaimed && (
+                    <button className="btn btn--primary btn--lg" onClick={claimReward} style={{ width: '100%', marginTop: 24 }}>
+                        <Icon name="gift" size={20} />
+                        <span>Claim Day {dailyRewardDay + 1} Reward</span>
+                    </button>
+                )}
+
+                {dailyRewardClaimed && (
+                    <div className="game__prompt glass-card" style={{ textAlign: 'center', marginTop: 24 }}>
+                        <Icon name="check-circle" size={32} color="#4ade80" />
+                        <h3 style={{ marginTop: 8 }}>Claimed!</h3>
+                        <p>Come back tomorrow for Day {(dailyRewardDay % 7) + 1}</p>
                     </div>
                 )}
             </div>

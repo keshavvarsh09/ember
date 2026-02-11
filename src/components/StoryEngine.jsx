@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGame } from '../engine/gameState';
 import { getStoryNode } from '../data/stories';
+import { sendGameEvent } from '../lib/realtimeManager';
+import Icon from './ui/Icons';
+import Avatar from './ui/Avatar';
 
-const reactionEmojis = ['🔥', '😍', '🥵', '💜', '😏', '🫣', '💋', '⚡'];
+const reactionIcons = ['flame', 'heart', 'zap', 'star', 'sparkle', 'eye', 'fire', 'target'];
 
 export default function StoryEngine() {
     const { state, dispatch } = useGame();
@@ -99,8 +102,8 @@ export default function StoryEngine() {
         if (textRevealed && !partnerReaction) {
             const delay = 2000 + Math.random() * 3000;
             const timer = setTimeout(() => {
-                const emoji = reactionEmojis[Math.floor(Math.random() * reactionEmojis.length)];
-                setPartnerReaction(emoji);
+                const icon = reactionIcons[Math.floor(Math.random() * reactionIcons.length)];
+                setPartnerReaction(icon);
                 setTimeout(() => setPartnerReaction(null), 3000);
             }, delay);
             return () => clearTimeout(timer);
@@ -171,7 +174,7 @@ export default function StoryEngine() {
             {/* Partner floating reaction */}
             {partnerReaction && (
                 <div className="story-engine__partner-reaction animate-scale-in">
-                    <span className="story-engine__pr-emoji">{partnerReaction}</span>
+                    <span className="story-engine__pr-emoji"><Icon name={partnerReaction} size={24} /></span>
                     <span className="story-engine__pr-name">{state.partnerProfile.name}</span>
                 </div>
             )}
@@ -182,13 +185,13 @@ export default function StoryEngine() {
                     <button className="btn btn--ghost" onClick={() => {
                         dispatch({ type: 'END_SESSION' });
                         dispatch({ type: 'SET_SCREEN', payload: 'lobby' });
-                    }}>✕</button>
+                    }}><Icon name="close" size={18} /></button>
                     <div className="story-engine__story-title">
-                        <span>{story.emoji}</span>
+                        <Icon name="heart" size={18} />
                         <span>{story.title}</span>
                     </div>
                     <button className="btn btn--ghost btn--icon" onClick={() => setShowReactions(!showReactions)}>
-                        ❤️
+                        <Icon name="heart" size={18} color="#e84393" />
                     </button>
                 </div>
 
@@ -234,7 +237,7 @@ export default function StoryEngine() {
                 {/* Partner turn waiting */}
                 {partnerTurnWaiting && (
                     <div className="story-engine__partner-turn glass-card animate-scale-in">
-                        <div className="story-engine__pt-avatar">{state.partnerProfile.avatar}</div>
+                        <div className="story-engine__pt-avatar"><Avatar id={state.partnerProfile.avatarId} size={32} /></div>
                         <p className="font-story">{state.partnerProfile.name} is deciding...</p>
                         <div className="story-engine__pt-dots">
                             <span className="story-engine__pt-dot" />
@@ -247,7 +250,7 @@ export default function StoryEngine() {
                 {/* Writing prompt */}
                 {textRevealed && isWritingPrompt && !writingSubmitted && (
                     <div className="story-engine__writing glass-card animate-fade-in-up">
-                        <div className="story-engine__writing-label">✍️ Your Turn to Write</div>
+                        <div className="story-engine__writing-label"><Icon name="edit" size={16} /> Your Turn to Write</div>
                         <p className="story-engine__writing-prompt font-story">{node.writingPrompt}</p>
                         <textarea
                             className="story-engine__writing-input"
@@ -260,7 +263,7 @@ export default function StoryEngine() {
                         <div className="story-engine__writing-footer">
                             <span className="story-engine__writing-count">{writingInput.length}/{node.maxLength || 300}</span>
                             <button className="btn btn--primary" onClick={handleWritingSubmit} disabled={!writingInput.trim()}>
-                                Submit ✓
+                                <Icon name="check" size={14} /> Submit
                             </button>
                         </div>
                     </div>
@@ -271,7 +274,7 @@ export default function StoryEngine() {
                     <div className="story-engine__writing-done glass-card animate-scale-in">
                         <p className="font-story">"{writingInput}"</p>
                         <p className="story-engine__writing-reaction">
-                            {state.partnerProfile.name} loved that. 🔥
+                            {state.partnerProfile.name} loved that. <Icon name="flame" size={14} color="#e84393" />
                         </p>
                     </div>
                 )}
@@ -279,13 +282,13 @@ export default function StoryEngine() {
                 {/* Detail request */}
                 {textRevealed && isDetailRequest && !writingSubmitted && (
                     <div className="story-engine__detail glass-card animate-fade-in-up">
-                        <div className="story-engine__detail-label">🔍 Be Specific</div>
+                        <div className="story-engine__detail-label"><Icon name="eye" size={16} /> Be Specific</div>
                         <p className="story-engine__detail-prompt font-story">{node.detailRequest}</p>
                         {node.senses && (
                             <div className="story-engine__senses">
                                 {node.senses.map(s => (
                                     <span key={s} className="story-engine__sense-tag">
-                                        {s === 'see' ? '👁️' : s === 'hear' ? '👂' : s === 'feel' ? '🤲' : s === 'smell' ? '👃' : '👅'} {s}
+                                        {s === 'see' ? <Icon name="eye" size={12} /> : s === 'hear' ? <Icon name="mic" size={12} /> : s === 'feel' ? <Icon name="heart" size={12} /> : s === 'smell' ? <Icon name="sparkle" size={12} /> : <Icon name="flame" size={12} />} {s}
                                     </span>
                                 ))}
                             </div>
@@ -299,7 +302,7 @@ export default function StoryEngine() {
                             rows={4}
                         />
                         <button className="btn btn--primary btn--full" onClick={handleWritingSubmit} disabled={!writingInput.trim()}>
-                            Share with {state.partnerProfile.name} ✓
+                            Share with {state.partnerProfile.name} <Icon name="check" size={14} />
                         </button>
                     </div>
                 )}
@@ -307,15 +310,15 @@ export default function StoryEngine() {
                 {/* Dare card */}
                 {showDare && node.dare && (
                     <div className="story-engine__dare glass-card animate-scale-in">
-                        <div className="story-engine__dare-header">{'🔥'.repeat(node.dare.heat)} DARE</div>
+                        <div className="story-engine__dare-header">{Array.from({ length: node.dare.heat }).map((_, i) => <Icon key={i} name="flame" size={14} color="#e84393" />)} DARE</div>
                         <p className="story-engine__dare-text font-story">{node.dare.text}</p>
                         {!dareCompleted ? (
                             <div className="story-engine__dare-actions">
-                                <button className="btn btn--primary" onClick={() => setDareCompleted(true)}>Done ✓</button>
+                                <button className="btn btn--primary" onClick={() => setDareCompleted(true)}><Icon name="check" size={14} /> Done</button>
                                 <button className="btn btn--ghost" onClick={() => setDareCompleted(true)}>Skip</button>
                             </div>
                         ) : (
-                            <div className="story-engine__dare-complete animate-scale-in">✨ Nice!</div>
+                            <div className="story-engine__dare-complete animate-scale-in"><Icon name="sparkle" size={18} color="#ffd700" /> Nice!</div>
                         )}
                     </div>
                 )}
@@ -348,11 +351,11 @@ export default function StoryEngine() {
                             <>
                                 <h2 className="story-engine__ending-title font-story">{node.ending.title}</h2>
                                 <p className="story-engine__ending-subtitle">{node.ending.subtitle}</p>
-                                <div className="story-engine__ending-score">+{node.ending.score} 🔥</div>
+                                <div className="story-engine__ending-score">+{node.ending.score} <Icon name="fire" size={16} color="#ff6b35" /></div>
                             </>
                         )}
                         <button className="btn btn--primary btn--large btn--full" onClick={handleEnding} style={{ marginTop: '2rem' }}>
-                            Complete Story ✨
+                            <Icon name="sparkle" size={16} /> Complete Story
                         </button>
                     </div>
                 )}
@@ -361,9 +364,9 @@ export default function StoryEngine() {
             {/* Reaction bar */}
             {showReactions && (
                 <div className="story-engine__reaction-bar animate-fade-in-up">
-                    {reactionEmojis.map((emoji) => (
-                        <button key={emoji} className="story-engine__reaction-btn" onClick={() => handleReaction(emoji)}>
-                            {emoji}
+                    {reactionIcons.map((iconName) => (
+                        <button key={iconName} className="story-engine__reaction-btn" onClick={() => handleReaction(iconName)}>
+                            <Icon name={iconName} size={22} />
                         </button>
                     ))}
                 </div>

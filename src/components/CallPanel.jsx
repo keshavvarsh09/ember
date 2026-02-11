@@ -1,144 +1,167 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useGame } from '../engine/gameState';
+import useWebRTC from '../hooks/useWebRTC';
+import Icon from './ui/Icons';
+import Avatar from './ui/Avatar';
 
 export default function CallPanel() {
     const { state, dispatch } = useGame();
-    const [callState, setCallState] = useState('ringing'); // ringing | connected | ended
-    const [callMode, setCallMode] = useState(state.callType || 'voice'); // voice | video
-    const [muted, setMuted] = useState(false);
-    const [speakerOn, setSpeakerOn] = useState(false);
-    const [cameraOff, setCameraOff] = useState(false);
-    const [elapsedTime, setElapsedTime] = useState(0);
+    const { partnerProfile, userId, callType } = state;
 
-    // Simulate connection after 3 seconds
+    const webrtc = useWebRTC(userId);
+    const localVideoEl = useRef(null);
+    const remoteVideoEl = useRef(null);
+
+    // Start call on mount based on callType
     useEffect(() => {
-        if (callState === 'ringing') {
-            const timer = setTimeout(() => setCallState('connected'), 3000);
-            return () => clearTimeout(timer);
+        if (callType && webrtc.callState === 'idle') {
+            webrtc.startCall(callType);
         }
-    }, [callState]);
+    }, [callType]);
 
-    // Call timer
+    // Bind video refs
     useEffect(() => {
-        if (callState !== 'connected') return;
-        const interval = setInterval(() => setElapsedTime((t) => t + 1), 1000);
-        return () => clearInterval(interval);
-    }, [callState]);
+        if (localVideoEl.current) webrtc.localVideoRef.current = localVideoEl.current;
+        if (remoteVideoEl.current) webrtc.remoteVideoRef.current = remoteVideoEl.current;
+    }, []);
 
-    const formatTime = (seconds) => {
-        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const s = (seconds % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
-    };
-
-    const handleEndCall = () => {
-        setCallState('ended');
+    const handleEnd = () => {
+        webrtc.endCall();
         setTimeout(() => {
-            dispatch({ type: 'END_CALL' });
+            dispatch({ type: 'SET_CALL', payload: { active: false, type: null } });
             dispatch({ type: 'SET_SCREEN', payload: 'lobby' });
-        }, 1000);
+        }, 1500);
     };
 
-    const toggleMode = () => {
-        setCallMode(callMode === 'voice' ? 'video' : 'voice');
+    const goBack = () => {
+        webrtc.endCall();
+        dispatch({ type: 'SET_CALL', payload: { active: false, type: null } });
+        dispatch({ type: 'SET_SCREEN', payload: 'lobby' });
     };
+
+    const isVideo = callType === 'video';
 
     return (
-        <div className={`call-panel ${callMode === 'video' ? 'call-panel--video' : ''}`}>
-            {/* Video background (simulated) */}
-            {callMode === 'video' && (
-                <div className="call-panel__video-bg">
-                    <div className="call-panel__video-placeholder">
-                        <span className="call-panel__video-avatar">{state.partnerProfile.avatar}</span>
-                        {cameraOff && <div className="call-panel__camera-off">Camera Off</div>}
+        <div className={`call-panel ${isVideo ? 'call-panel--video' : ''}`}>
+            {/* Video mode */}
+            {isVideo && (
+                <>
+                    <div className="call-panel__video-bg">
+                        <video
+                            ref={remoteVideoEl}
+                            autoPlay
+                            playsInline
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                        {webrtc.callState !== 'connected' && (
+                            <div className="call-panel__video-placeholder">
+                                <Avatar id={partnerProfile.avatarId} size={120} />
+                                <span className="call-panel__camera-off">
+                                    {webrtc.callState === 'ringing' ? 'Calling...' : 'Connecting...'}
+                                </span>
+                            </div>
+                        )}
                     </div>
-                    {/* Self-view PiP */}
+
+                    {/* PiP self-view */}
                     <div className="call-panel__pip">
-                        <span className="call-panel__pip-avatar">{state.userProfile.avatar}</span>
+                        <video
+                            ref={localVideoEl}
+                            autoPlay
+                            playsInline
+                            muted
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }}
+                        />
                     </div>
-                </div>
+                </>
             )}
 
-            {/* Voice mode - avatar display */}
-            {callMode === 'voice' && (
+            {/* Voice mode */}
+            {!isVideo && (
                 <div className="call-panel__voice-display">
-                    <div className={`call-panel__avatar-ring ${callState === 'connected' ? 'call-panel__avatar-ring--active' : ''}`}>
+                    <div className={`call-panel__avatar-ring ${webrtc.callState === 'connected' ? 'call-panel__avatar-ring--active' : ''}`}>
                         <div className="call-panel__avatar-ring-inner">
-                            <span className="call-panel__partner-avatar">{state.partnerProfile.avatar}</span>
+                            <Avatar id={partnerProfile.avatarId} size={100} />
                         </div>
                     </div>
-                    <h2 className="call-panel__partner-name font-story">{state.partnerProfile.name || 'Partner'}</h2>
 
-                    {callState === 'ringing' && (
+                    <h2 className="call-panel__partner-name">{partnerProfile.name || 'Partner'}</h2>
+
+                    {webrtc.callState === 'ringing' && (
                         <p className="call-panel__status call-panel__status--ringing">
-                            <span className="call-panel__ring-anim">📞</span> Calling...
+                            <Icon name="phone" size={16} /> Calling...
                         </p>
                     )}
-                    {callState === 'connected' && (
+                    {webrtc.callState === 'connecting' && (
+                        <p className="call-panel__status call-panel__status--ringing">
+                            Connecting...
+                        </p>
+                    )}
+                    {webrtc.callState === 'connected' && (
                         <p className="call-panel__status call-panel__status--connected">
-                            {formatTime(elapsedTime)}
+                            {webrtc.formattedDuration}
                         </p>
                     )}
-                    {callState === 'ended' && (
+                    {webrtc.callState === 'ended' && (
                         <p className="call-panel__status call-panel__status--ended">Call ended</p>
                     )}
+
+                    {/* Audio element for voice call remote stream */}
+                    <audio ref={remoteVideoEl} autoPlay />
                 </div>
             )}
 
-            {/* Coming Soon Banner */}
-            <div className="call-panel__coming-soon glass-card">
-                <span>🚧</span>
-                <span>Real-time calls coming soon! This is a preview of the UI.</span>
-            </div>
+            {/* Error */}
+            {webrtc.error && (
+                <div className="call-panel__coming-soon">
+                    <Icon name="shield" size={16} />
+                    <span>{webrtc.error}</span>
+                </div>
+            )}
 
             {/* Controls */}
-            {callState !== 'ended' && (
-                <div className="call-panel__controls">
+            <div className="call-panel__controls">
+                <button
+                    className={`call-panel__control-btn ${webrtc.isMuted ? 'call-panel__control-btn--active' : ''}`}
+                    onClick={webrtc.toggleMute}
+                >
+                    <Icon name={webrtc.isMuted ? 'mic-off' : 'mic'} size={22} />
+                    <span className="call-panel__control-label">
+                        {webrtc.isMuted ? 'Unmute' : 'Mute'}
+                    </span>
+                </button>
+
+                {isVideo && (
                     <button
-                        className={`call-panel__control-btn ${muted ? 'call-panel__control-btn--active' : ''}`}
-                        onClick={() => setMuted(!muted)}
+                        className={`call-panel__control-btn ${webrtc.isCameraOff ? 'call-panel__control-btn--active' : ''}`}
+                        onClick={webrtc.toggleCamera}
                     >
-                        <span>{muted ? '🔇' : '🎤'}</span>
-                        <span className="call-panel__control-label">{muted ? 'Unmute' : 'Mute'}</span>
+                        <Icon name={webrtc.isCameraOff ? 'video-off' : 'video'} size={22} />
+                        <span className="call-panel__control-label">
+                            {webrtc.isCameraOff ? 'Camera On' : 'Camera Off'}
+                        </span>
                     </button>
+                )}
 
-                    {callMode === 'voice' && (
-                        <button
-                            className={`call-panel__control-btn ${speakerOn ? 'call-panel__control-btn--active' : ''}`}
-                            onClick={() => setSpeakerOn(!speakerOn)}
-                        >
-                            <span>{speakerOn ? '🔊' : '🔈'}</span>
-                            <span className="call-panel__control-label">Speaker</span>
-                        </button>
-                    )}
+                <button
+                    className={`call-panel__control-btn ${!webrtc.isMuted ? 'call-panel__control-btn--active' : ''}`}
+                    onClick={() => { }}
+                >
+                    <Icon name="speaker" size={22} />
+                    <span className="call-panel__control-label">Speaker</span>
+                </button>
 
-                    {callMode === 'video' && (
-                        <button
-                            className={`call-panel__control-btn ${cameraOff ? 'call-panel__control-btn--active' : ''}`}
-                            onClick={() => setCameraOff(!cameraOff)}
-                        >
-                            <span>{cameraOff ? '📷' : '📸'}</span>
-                            <span className="call-panel__control-label">Camera</span>
-                        </button>
-                    )}
+                <button className="call-panel__control-btn call-panel__control-btn--end" onClick={handleEnd}>
+                    <Icon name="phone-off" size={22} />
+                    <span className="call-panel__control-label">End</span>
+                </button>
+            </div>
 
-                    <button className="call-panel__control-btn" onClick={toggleMode}>
-                        <span>{callMode === 'voice' ? '📹' : '📞'}</span>
-                        <span className="call-panel__control-label">{callMode === 'voice' ? 'Video' : 'Voice'}</span>
-                    </button>
-
-                    <button className="call-panel__control-btn call-panel__control-btn--end" onClick={handleEndCall}>
-                        <span>📵</span>
-                        <span className="call-panel__control-label">End</span>
-                    </button>
-                </div>
-            )}
-
-            {/* Back button if ended */}
-            {callState === 'ended' && (
-                <button className="btn btn--primary" onClick={() => { dispatch({ type: 'END_CALL' }); dispatch({ type: 'SET_SCREEN', payload: 'lobby' }); }}
-                    style={{ marginTop: '2rem' }}>
-                    Back to Lobby
+            {/* Back button */}
+            {(webrtc.callState === 'idle' || webrtc.callState === 'ended') && (
+                <button className="btn btn--secondary" onClick={goBack} style={{ marginTop: 24 }}>
+                    <Icon name="arrow-left" size={16} />
+                    <span>Back to Lobby</span>
                 </button>
             )}
         </div>

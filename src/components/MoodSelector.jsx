@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useGame } from '../engine/gameState';
 import { stories, getStoryById } from '../data/stories';
+import { sendGameEvent } from '../lib/realtimeManager';
+import Icon from './ui/Icons';
 
 const moods = [
-    { id: 'tender', emoji: '🌸', label: 'Tender', desc: 'Soft, romantic, emotional', color: '#ffa07a' },
-    { id: 'playful', emoji: '😏', label: 'Playful', desc: 'Fun, teasing, light', color: '#ff6b9d' },
-    { id: 'passionate', emoji: '🔥', label: 'Passionate', desc: 'Intense, burning, urgent', color: '#e84393' },
-    { id: 'adventurous', emoji: '💜', label: 'Adventurous', desc: 'Bold, exploring, daring', color: '#8b5cf6' },
-    { id: 'primal', emoji: '🖤', label: 'Primal', desc: 'Raw, unfiltered, dominant', color: '#ff4757' },
+    { id: 'tender', icon: 'heart', label: 'Tender', desc: 'Soft, romantic, emotional', color: '#ffa07a' },
+    { id: 'playful', icon: 'sparkle', label: 'Playful', desc: 'Fun, teasing, light', color: '#ff6b9d' },
+    { id: 'passionate', icon: 'flame', label: 'Passionate', desc: 'Intense, burning, urgent', color: '#e84393' },
+    { id: 'adventurous', icon: 'zap', label: 'Adventurous', desc: 'Bold, exploring, daring', color: '#8b5cf6' },
+    { id: 'primal', icon: 'fire', label: 'Primal', desc: 'Raw, unfiltered, dominant', color: '#ff4757' },
 ];
 
 const moodToStory = {
@@ -21,8 +23,8 @@ const moodToStory = {
 export default function MoodSelector() {
     const { state, dispatch } = useGame();
     const [selectedMood, setSelectedMood] = useState(null);
-    const [partnerMoodSim, setPartnerMoodSim] = useState(null);
-    const [phase, setPhase] = useState('select'); // select | waiting | matched
+    const [partnerMood, setPartnerMood] = useState(null);
+    const [phase, setPhase] = useState('select');
 
     const handleMoodSelect = (mood) => {
         setSelectedMood(mood);
@@ -31,13 +33,18 @@ export default function MoodSelector() {
 
     const handleConfirm = () => {
         setPhase('waiting');
-        // Simulate partner mood selection
+        // Broadcast mood to partner
+        sendGameEvent('mood_select', { mood: selectedMood, from: state.userId });
+
+        // Wait for partner mood (or timeout with simulated)
         setTimeout(() => {
-            const partnerMood = moods[Math.floor(Math.random() * moods.length)];
-            setPartnerMoodSim(partnerMood);
-            dispatch({ type: 'SET_PARTNER_MOOD', payload: partnerMood.id });
+            if (!partnerMood) {
+                const pm = moods[Math.floor(Math.random() * moods.length)];
+                setPartnerMood(pm);
+                dispatch({ type: 'SET_PARTNER_MOOD', payload: pm.id });
+            }
             setPhase('matched');
-        }, 2000);
+        }, 3000);
     };
 
     const handleStartStory = () => {
@@ -52,18 +59,21 @@ export default function MoodSelector() {
     };
 
     return (
-        <div className="mood-select page-enter">
-            <div className="container">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
-                    ← Back
-                </button>
+        <div className="screen mood-selector">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">Set the Mood</h2>
+                </div>
 
                 {phase === 'select' && (
-                    <div className="mood-select__content animate-fade-in-up">
-                        <h2 className="mood-select__title font-story">
-                            What's the <span className="text-gradient">mood</span> tonight?
+                    <div className="animate-fade-in">
+                        <h2 className="screen__title">
+                            What's the <span className="gradient-text">mood</span> tonight?
                         </h2>
-                        <p className="mood-select__subtitle">
+                        <p className="screen__subtitle">
                             Both of you pick — the game adapts to where you both are.
                         </p>
 
@@ -71,15 +81,14 @@ export default function MoodSelector() {
                             {moods.map((mood, i) => (
                                 <button
                                     key={mood.id}
-                                    className={`mood-select__card glass-card animate-fade-in-up ${selectedMood?.id === mood.id ? 'mood-select__card--selected' : ''}`}
+                                    className={`mood-select__card glass-card ${selectedMood?.id === mood.id ? 'mood-select__card--selected' : ''}`}
                                     style={{
-                                        animationDelay: `${i * 100}ms`,
                                         borderColor: selectedMood?.id === mood.id ? mood.color : undefined,
                                         boxShadow: selectedMood?.id === mood.id ? `0 0 30px ${mood.color}30` : undefined,
                                     }}
                                     onClick={() => handleMoodSelect(mood)}
                                 >
-                                    <span className="mood-select__card-emoji">{mood.emoji}</span>
+                                    <Icon name={mood.icon} size={28} color={mood.color} />
                                     <span className="mood-select__card-label">{mood.label}</span>
                                     <span className="mood-select__card-desc">{mood.desc}</span>
                                 </button>
@@ -87,42 +96,48 @@ export default function MoodSelector() {
                         </div>
 
                         {selectedMood && (
-                            <button className="btn btn--primary btn--large btn--full animate-fade-in-up" onClick={handleConfirm} style={{ marginTop: '2rem' }}>
-                                Lock In My Mood {selectedMood.emoji}
+                            <button className="btn btn--primary btn--lg" onClick={handleConfirm} style={{ width: '100%', marginTop: 24 }}>
+                                <Icon name={selectedMood.icon} size={18} />
+                                <span>Lock In My Mood</span>
                             </button>
                         )}
                     </div>
                 )}
 
                 {phase === 'waiting' && (
-                    <div className="mood-select__waiting animate-fade-in">
-                        <div className="mood-select__waiting-icon animate-breathe">{selectedMood?.emoji}</div>
-                        <h2 className="font-story">Waiting for {state.partnerProfile.name || 'partner'}...</h2>
-                        <p className="mood-select__waiting-sub">They're picking their mood</p>
-                        <div className="compat__loading-bar">
-                            <div className="compat__loading-fill" />
+                    <div className="animate-fade-in" style={{ textAlign: 'center' }}>
+                        <div style={{ margin: '48px 0', padding: 24 }}>
+                            <Icon name={selectedMood?.icon} size={64} color={selectedMood?.color} />
                         </div>
+                        <h2>Waiting for {state.partnerProfile.name || 'partner'}...</h2>
+                        <p className="screen__subtitle">They're picking their mood</p>
+                        <div className="onboarding__pulse" style={{ margin: '24px auto' }} />
                     </div>
                 )}
 
                 {phase === 'matched' && (
-                    <div className="mood-select__matched animate-scale-in">
-                        <h2 className="font-story mood-select__matched-title">Mood Synced 💫</h2>
+                    <div className="animate-scale-in" style={{ textAlign: 'center' }}>
+                        <h2 className="screen__title">
+                            <Icon name="sparkle" size={24} /> Mood Synced
+                        </h2>
                         <div className="mood-select__matched-moods">
                             <div className="mood-select__matched-you">
-                                <span className="mood-select__matched-emoji">{selectedMood?.emoji}</span>
-                                <span className="mood-select__matched-name">{state.userProfile.name}</span>
-                                <span className="mood-select__matched-mood" style={{ color: selectedMood?.color }}>{selectedMood?.label}</span>
+                                <Icon name={selectedMood?.icon} size={40} color={selectedMood?.color} />
+                                <span>{state.userProfile.name}</span>
+                                <span style={{ color: selectedMood?.color }}>{selectedMood?.label}</span>
                             </div>
-                            <div className="mood-select__matched-divider">⚡</div>
+                            <div className="mood-select__matched-divider">
+                                <Icon name="zap" size={20} color="#fbbf24" />
+                            </div>
                             <div className="mood-select__matched-partner">
-                                <span className="mood-select__matched-emoji">{partnerMoodSim?.emoji}</span>
-                                <span className="mood-select__matched-name">{state.partnerProfile.name}</span>
-                                <span className="mood-select__matched-mood" style={{ color: partnerMoodSim?.color }}>{partnerMoodSim?.label}</span>
+                                <Icon name={partnerMood?.icon || 'heart'} size={40} color={partnerMood?.color} />
+                                <span>{state.partnerProfile.name}</span>
+                                <span style={{ color: partnerMood?.color }}>{partnerMood?.label}</span>
                             </div>
                         </div>
-                        <button className="btn btn--primary btn--large btn--full animate-pulse-glow" onClick={handleStartStory} style={{ marginTop: '2rem' }}>
-                            Begin the Story 📖
+                        <button className="btn btn--primary btn--lg" onClick={handleStartStory} style={{ width: '100%', marginTop: 24 }}>
+                            <Icon name="heart" size={18} />
+                            <span>Begin the Story</span>
                         </button>
                     </div>
                 )}

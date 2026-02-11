@@ -1,123 +1,108 @@
 import React from 'react';
 import { useGame } from '../engine/gameState';
-import { getDailySpark } from '../data/daily-sparks';
-import { getRandomDare } from '../data/dares';
+import Icon from './ui/Icons';
+import Avatar from './ui/Avatar';
 
 export default function GameLobby() {
     const { state, dispatch } = useGame();
-    const dailySpark = getDailySpark();
-    const randomDare = getRandomDare(state.userProfile.heatLevel);
+    const { userProfile, partnerProfile, partnerOnline, emberScore, streak, chatMessages, roomCode } = state;
+    const unread = chatMessages.filter(m => m.sender !== state.userId).length;
 
-    const navigate = (screen) => dispatch({ type: 'SET_SCREEN', payload: screen });
+    const activities = [
+        { id: 'chat', label: 'Chat', icon: 'chat', desc: 'Send messages', color: '#0ea5e9', badge: unread },
+        { id: 'call', label: 'Voice Call', icon: 'phone', desc: 'Talk live', color: '#8b5cf6' },
+        { id: 'video-call', label: 'Video Call', icon: 'video', desc: 'Face to face', color: '#e84393' },
+        { id: 'minigames', label: 'Games', icon: 'dice', desc: '5 games to play', color: '#ff6b35' },
+        { id: 'library', label: 'Stories', icon: 'heart', desc: 'Intimate narratives', color: '#f43f5e' },
+        { id: 'spin', label: 'Spin', icon: 'wheel', desc: 'Win rewards', color: '#10b981' },
+        { id: 'rewards', label: 'Daily', icon: 'gift', desc: 'Claim today', color: '#fbbf24' },
+        { id: 'progress', label: 'Progress', icon: 'trophy', desc: 'Your journey', color: '#7c3aed' },
+    ];
+
+    const handleActivity = (id) => {
+        if (id === 'video-call') {
+            dispatch({ type: 'SET_CALL', payload: { active: true, type: 'video' } });
+            dispatch({ type: 'SET_SCREEN', payload: 'call' });
+        } else if (id === 'call') {
+            dispatch({ type: 'SET_CALL', payload: { active: true, type: 'voice' } });
+            dispatch({ type: 'SET_SCREEN', payload: 'call' });
+        } else {
+            dispatch({ type: 'SET_SCREEN', payload: id });
+        }
+    };
 
     return (
-        <div className="lobby page-enter">
-            <div className="container">
+        <div className="screen lobby">
+            <div className="screen__content">
                 {/* Header */}
-                <div className="lobby__header animate-fade-in-up">
-                    <div className="lobby__greeting">
-                        <span className="lobby__avatar">{state.userProfile.avatar}</span>
+                <div className="lobby__header">
+                    <div className="lobby__brand">
+                        <Icon name="flame" size={24} color="#e84393" />
+                        <span className="gradient-text" style={{ fontSize: '1.2rem', fontWeight: 700 }}>GARF</span>
+                    </div>
+                    <div className="lobby__room-code">
+                        <Icon name="link" size={14} />
+                        <span>{roomCode || '—'}</span>
+                    </div>
+                </div>
+
+                {/* Partner status */}
+                <div className="lobby__partner glass-card">
+                    <div className="lobby__partner-info">
+                        <div className="lobby__avatars">
+                            <Avatar id={userProfile.avatarId} size={48} />
+                            <div className="lobby__avatar-connector">
+                                <Icon name="heart" size={16} color="#e84393" />
+                            </div>
+                            <div style={{ position: 'relative' }}>
+                                <Avatar id={partnerProfile.avatarId} size={48} />
+                                <span className={`lobby__status-dot ${partnerOnline ? 'lobby__status-dot--online' : ''}`} />
+                            </div>
+                        </div>
                         <div>
-                            <h2 className="lobby__name">Hey, {state.userProfile.name} 🔥</h2>
-                            <p className="lobby__partner-status">
-                                <span className="lobby__online-dot" />
-                                {state.partnerProfile.name || 'Partner'} is here
-                            </p>
+                            <h3 className="lobby__partner-name">{partnerProfile.name || 'Partner'}</h3>
+                            <span className={`lobby__status ${partnerOnline ? 'lobby__status--online' : ''}`}>
+                                {partnerOnline ? 'Online now' : 'Offline'}
+                            </span>
                         </div>
                     </div>
-                    <div className="lobby__streak">
-                        <span className="lobby__streak-flame">🔥</span>
-                        <span className="lobby__streak-count">{state.streak}</span>
-                    </div>
-                </div>
-
-                {/* Communication Bar */}
-                <div className="lobby__comms-bar animate-fade-in-up delay-1">
-                    <button className="lobby__comm-btn glass-card" onClick={() => navigate('chat')}>
-                        <span>💬</span>
-                        <span>Chat</span>
-                        {state.chatMessages.length > 0 && (
-                            <span className="lobby__comm-badge">{state.chatMessages.filter(m => m.from === 'partner').length}</span>
-                        )}
-                    </button>
-                    <button className="lobby__comm-btn glass-card" onClick={() => { dispatch({ type: 'START_CALL', payload: 'voice' }); navigate('call'); }}>
-                        <span>📞</span>
-                        <span>Voice</span>
-                    </button>
-                    <button className="lobby__comm-btn glass-card" onClick={() => { dispatch({ type: 'START_CALL', payload: 'video' }); navigate('call'); }}>
-                        <span>📹</span>
-                        <span>Video</span>
-                    </button>
-                </div>
-
-                {/* Daily Spark */}
-                <div className="lobby__daily glass-card animate-fade-in-up delay-1" onClick={() => navigate('mood')}>
-                    <div className="lobby__daily-badge">✨ TODAY'S SPARK</div>
-                    <div className="lobby__daily-content">
-                        <span className="lobby__daily-emoji">{dailySpark.emoji}</span>
-                        <h3 className="lobby__daily-title font-story">{dailySpark.title}</h3>
-                        <p className="lobby__daily-desc">{dailySpark.description}</p>
-                        <div className="lobby__daily-meta">
-                            <span className="lobby__daily-duration">⏱ {dailySpark.duration}</span>
-                            <span className="lobby__daily-heat">{'🔥'.repeat(dailySpark.heat)}</span>
+                    <div className="lobby__stats">
+                        <div className="lobby__stat">
+                            <Icon name="fire" size={16} color="#ff6b35" />
+                            <span>{emberScore}</span>
+                        </div>
+                        <div className="lobby__stat">
+                            <Icon name="zap" size={16} color="#fbbf24" />
+                            <span>{streak} day{streak !== 1 ? 's' : ''}</span>
                         </div>
                     </div>
-                    <div className="lobby__daily-cta">Tap to Play →</div>
                 </div>
 
-                {/* Free Choice Activity Grid */}
-                <div className="lobby__modes">
-                    <h3 className="lobby__section-title animate-fade-in-up delay-2">What do you want to do? 😏</h3>
-                    <div className="lobby__mode-grid">
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-2" onClick={() => navigate('mood')}>
-                            <span className="lobby__mode-icon">📖</span>
-                            <span className="lobby__mode-label">Story Mode</span>
-                            <span className="lobby__mode-desc">Interactive narrative</span>
-                        </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-3" onClick={() => navigate('minigames')}>
-                            <span className="lobby__mode-icon">🎲</span>
-                            <span className="lobby__mode-label">Board Games</span>
-                            <span className="lobby__mode-desc">Ludo, S&L, Monopoly</span>
-                        </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-3" onClick={() => navigate('dare')}>
-                            <span className="lobby__mode-icon">🎯</span>
-                            <span className="lobby__mode-label">Quick Dare</span>
-                            <span className="lobby__mode-desc">Fast & spicy</span>
-                        </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-4" onClick={() => navigate('spin')}>
-                            <span className="lobby__mode-icon">🎰</span>
-                            <span className="lobby__mode-label">Spin Wheel</span>
-                            <span className="lobby__mode-desc">Let fate decide</span>
-                        </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-4" onClick={() => navigate('library')}>
-                            <span className="lobby__mode-icon">📚</span>
-                            <span className="lobby__mode-label">Story Library</span>
-                            <span className="lobby__mode-desc">Browse all stories</span>
-                        </button>
-                        <button className="lobby__mode glass-card animate-fade-in-up delay-5" onClick={() => navigate('rewards')}>
-                            <span className="lobby__mode-icon">🎁</span>
-                            <span className="lobby__mode-label">Daily Rewards</span>
-                            <span className="lobby__mode-desc">Streak bonuses</span>
-                        </button>
-                    </div>
+                {/* Activity grid */}
+                <div className="lobby__grid">
+                    {activities.map(act => (
+                        <div key={act.id} className="lobby__activity glass-card" onClick={() => handleActivity(act.id)}>
+                            <div className="lobby__activity-icon" style={{ background: `${act.color}22`, color: act.color }}>
+                                <Icon name={act.icon} size={22} color={act.color} />
+                            </div>
+                            <span className="lobby__activity-label">{act.label}</span>
+                            <span className="lobby__activity-desc">{act.desc}</span>
+                            {act.badge > 0 && (
+                                <span className="lobby__badge">{act.badge}</span>
+                            )}
+                        </div>
+                    ))}
                 </div>
 
-                {/* Quick Dare Preview */}
-                <div className="lobby__quick-dare glass-card animate-fade-in-up delay-6">
-                    <div className="lobby__qd-header">
-                        <span>⚡ Quick Dare</span>
-                        <span className="lobby__qd-heat">{'🔥'.repeat(randomDare.heat)}</span>
-                    </div>
-                    <p className="lobby__qd-text font-story">{randomDare.text}</p>
-                    <button className="btn btn--secondary btn--full" onClick={() => navigate('dare')} style={{ marginTop: '1rem' }}>
-                        Accept Dare 🎯
+                {/* Quick actions */}
+                <div className="lobby__actions">
+                    <button className="btn btn--secondary btn--sm" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'mood' })}>
+                        <Icon name="sparkle" size={16} />
+                        <span>Set Mood</span>
                     </button>
-                </div>
-
-                {/* Progress Section */}
-                <div className="lobby__footer animate-fade-in-up delay-7">
-                    <button className="btn btn--ghost" onClick={() => navigate('progress')}>
-                        🏆 Our Journey — {state.emberScore} 🔥
+                    <button className="btn btn--secondary btn--sm" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'dare' })}>
+                        <Icon name="flame" size={16} />
+                        <span>Quick Dare</span>
                     </button>
                 </div>
             </div>

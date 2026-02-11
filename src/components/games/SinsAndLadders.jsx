@@ -1,193 +1,171 @@
-import React, { useState } from 'react';
+import React, { useCallback } from 'react';
 import { useGame } from '../../engine/gameState';
-import { snakesSquares, ladders, snakes, rollDice } from '../../data/games-data';
+import { sendGameEvent } from '../../lib/realtimeManager';
+import Icon from '../ui/Icons';
+import { snakesSquares, ladders as laddersData } from '../../data/games-data';
+
+// Build lookup maps from ladders data
+const SNAKES_MAP = {};
+const LADDERS_MAP = {};
+if (laddersData) {
+    laddersData.forEach(item => {
+        if (item.text?.includes('🐍') || item.from > item.to) {
+            SNAKES_MAP[item.from] = item.to;
+        } else {
+            LADDERS_MAP[item.from] = item.to;
+        }
+    });
+}
 
 export default function SinsAndLadders() {
     const { state, dispatch } = useGame();
-    const [playerPos, setPlayerPos] = useState(0);
-    const [partnerPos, setPartnerPos] = useState(0);
-    const [currentTurn, setCurrentTurn] = useState(0);
-    const [diceValue, setDiceValue] = useState(null);
-    const [rolling, setRolling] = useState(false);
-    const [activeSquare, setActiveSquare] = useState(null);
-    const [specialEvent, setSpecialEvent] = useState(null); // ladder or snake
-    const [showPrompt, setShowPrompt] = useState(false);
-    const [gameOver, setGameOver] = useState(false);
+    const { snakesState, userId, userProfile, partnerProfile } = state;
+    const { positions, currentTurn, diceValue, currentSquare, gameOver } = snakesState;
 
-    const currentPlayer = currentTurn === 0 ? state.userProfile : state.partnerProfile;
+    const playerIndex = currentTurn === 0 ? 0 : 1;
+    const isMyTurn = currentTurn === playerIndex;
+    const BOARD_SIZE = 36;
 
-    const checkLadderOrSnake = (pos) => {
-        const ladder = ladders.find(l => l.from === pos);
-        if (ladder) return { type: 'ladder', ...ladder };
-        const snake = snakes.find(s => s.from === pos);
-        if (snake) return { type: 'snake', ...snake };
-        return null;
-    };
+    const rollDice = useCallback(() => {
+        if (!isMyTurn || gameOver) return;
 
-    const handleRoll = () => {
-        if (rolling || showPrompt) return;
-        setRolling(true);
-        setDiceValue(null);
-        setSpecialEvent(null);
+        const roll = Math.floor(Math.random() * 6) + 1;
+        let newPos = Math.min(positions[playerIndex] + roll, BOARD_SIZE - 1);
 
-        let rolls = 0;
-        const anim = setInterval(() => {
-            setDiceValue(Math.floor(Math.random() * 6) + 1);
-            rolls++;
-            if (rolls > 8) {
-                clearInterval(anim);
-                const finalRoll = rollDice();
-                setDiceValue(finalRoll);
-                setRolling(false);
-
-                const currentPos = currentTurn === 0 ? playerPos : partnerPos;
-                let newPos = Math.min(currentPos + finalRoll, 36);
-
-                // Check for ladder or snake
-                const event = checkLadderOrSnake(newPos);
-                if (event) {
-                    setSpecialEvent(event);
-                    newPos = event.to;
-                }
-
-                if (currentTurn === 0) setPlayerPos(newPos);
-                else setPartnerPos(newPos);
-
-                // Get square content
-                const square = snakesSquares.find(s => s.id === newPos);
-                setActiveSquare(square || { id: newPos, text: 'Keep going...', heat: 1 });
-                setShowPrompt(true);
-
-                if (newPos >= 36) setGameOver(true);
-            }
-        }, 100);
-    };
-
-    const handlePromptDone = () => {
-        setShowPrompt(false);
-        setActiveSquare(null);
-        setSpecialEvent(null);
-        if (!gameOver) {
-            setCurrentTurn(currentTurn === 0 ? 1 : 0);
+        // Check for snakes or ladders
+        const snakesMap = SNAKES_MAP || {};
+        const laddersMap = LADDERS_MAP || {};
+        let event = null;
+        if (snakesMap[newPos] !== undefined) {
+            event = 'snake';
+            newPos = snakesMap[newPos];
+        } else if (laddersMap[newPos] !== undefined) {
+            event = 'ladder';
+            newPos = laddersMap[newPos];
         }
+
+        const square = snakesSquares?.[newPos] || { text: `Square ${newPos + 1}`, type: 'sin' };
+
+        const update = {
+            diceValue: roll,
+            positions: positions.map((p, i) => i === playerIndex ? newPos : p),
+            currentSquare: { ...square, event },
+            currentTurn: currentTurn === 0 ? 1 : 0,
+            gameOver: newPos >= BOARD_SIZE - 1,
+        };
+
+        dispatch({ type: 'UPDATE_SNAKES', payload: update });
+        sendGameEvent('snakes_move', { update, playerIndex });
+    }, [isMyTurn, gameOver, positions, playerIndex, currentTurn]);
+
+    const resetGame = () => {
+        dispatch({ type: 'RESET_GAME' });
+        sendGameEvent('game_reset', { game: 'snakes' });
+        dispatch({ type: 'SET_SCREEN', payload: 'minigames' });
     };
 
-    const diceEmojis = ['⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
-
-    // Build 6x6 grid (bottom-left to top-right, snaking)
-    const buildGrid = () => {
-        const grid = [];
+    // Render 6x6 grid
+    const renderBoard = () => {
+        const cells = [];
         for (let row = 5; row >= 0; row--) {
-            const rowCells = [];
+            const isReversed = row % 2 === 1;
             for (let col = 0; col < 6; col++) {
-                const idx = row % 2 === 0 ? row * 6 + col + 1 : row * 6 + (5 - col) + 1;
-                rowCells.push(idx);
+                const actualCol = isReversed ? 5 - col : col;
+                const cellIndex = row * 6 + actualCol;
+                const isP1 = positions[0] === cellIndex;
+                const isP2 = positions[1] === cellIndex;
+                const isSnake = (SNAKES_MAP || {})[cellIndex] !== undefined;
+                const isLadder = (LADDERS_MAP || {})[cellIndex] !== undefined;
+
+                cells.push(
+                    <div
+                        key={cellIndex}
+                        className={`snakes__cell ${isP1 ? 'snakes__cell--p1' : ''} ${isP2 ? 'snakes__cell--p2' : ''} ${isSnake ? 'snakes__cell--snake' : ''} ${isLadder ? 'snakes__cell--ladder' : ''}`}
+                    >
+                        <span className="snakes__cell-num">{cellIndex + 1}</span>
+                        {isSnake && <Icon name="arrow-down" size={10} color="#f43f5e" />}
+                        {isLadder && <Icon name="arrow-up" size={10} color="#4ade80" />}
+                        {isP1 && <div className="ludo__token ludo__token--p1"><Icon name="heart" size={8} /></div>}
+                        {isP2 && <div className="ludo__token ludo__token--p2"><Icon name="star" size={8} /></div>}
+                    </div>
+                );
             }
-            grid.push(rowCells);
         }
-        return grid;
+        return cells;
     };
-
-    const grid = buildGrid();
-
-    const getSquareHeat = (id) => {
-        const sq = snakesSquares.find(s => s.id === id);
-        return sq ? sq.heat : 1;
-    };
-
-    const heatColors = {
-        1: '#00b894', 2: '#fdcb6e', 3: '#e17055', 4: '#d63031', 5: '#6c5ce7',
-    };
-
-    const hasLadder = (id) => ladders.some(l => l.from === id);
-    const hasSnake = (id) => snakes.some(s => s.from === id);
 
     return (
-        <div className="snakes page-enter">
-            <div className="container">
-                <div className="snakes__header">
-                    <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
-                        ← Back
+        <div className="screen game-screen">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'minigames' })}>
+                        <Icon name="arrow-left" size={20} />
                     </button>
-                    <h2 className="snakes__title font-story">🐍 Sins & Ladders</h2>
-                </div>
-
-                {/* Players */}
-                <div className="snakes__players animate-fade-in-up">
-                    <div className={`snakes__player ${currentTurn === 0 ? 'snakes__player--active' : ''}`}>
-                        <span>{state.userProfile.avatar}</span>
-                        <span>{state.userProfile.name}</span>
-                    </div>
-                    <div className="snakes__vs">VS</div>
-                    <div className={`snakes__player ${currentTurn === 1 ? 'snakes__player--active' : ''}`}>
-                        <span>{state.partnerProfile.avatar}</span>
-                        <span>{state.partnerProfile.name || 'Partner'}</span>
+                    <h2 className="game__title">Sins & Ladders</h2>
+                    <div className="game__turn-indicator">
+                        {isMyTurn ? (
+                            <span className="game__your-turn">Your turn</span>
+                        ) : (
+                            <span className="game__partner-turn">Partner's turn</span>
+                        )}
                     </div>
                 </div>
 
-                {/* Board */}
-                <div className="snakes__board animate-fade-in-up delay-1">
-                    {grid.map((row, ri) => (
-                        <div key={ri} className="snakes__row">
-                            {row.map((cellId) => (
-                                <div
-                                    key={cellId}
-                                    className={`snakes__cell ${cellId === playerPos ? 'snakes__cell--user' : ''} ${cellId === partnerPos ? 'snakes__cell--partner' : ''} ${cellId === activeSquare?.id && showPrompt ? 'snakes__cell--active' : ''}`}
-                                    style={{ '--cell-color': heatColors[getSquareHeat(cellId)] }}
-                                >
-                                    <span className="snakes__cell-num">{cellId}</span>
-                                    {hasLadder(cellId) && <span className="snakes__ladder-icon">🪜</span>}
-                                    {hasSnake(cellId) && <span className="snakes__snake-icon">🐍</span>}
-                                    {cellId === playerPos && <span className="snakes__token">{state.userProfile.avatar}</span>}
-                                    {cellId === partnerPos && <span className="snakes__token">{state.partnerProfile.avatar}</span>}
-                                </div>
-                            ))}
-                        </div>
-                    ))}
+                {/* 6x6 Board */}
+                <div className="snakes__board">
+                    {renderBoard()}
                 </div>
 
                 {/* Dice */}
-                {!gameOver && (
-                    <div className="snakes__dice-area animate-fade-in-up delay-2">
-                        <div className="snakes__turn-label">
-                            {currentPlayer.avatar} {currentPlayer.name}'s turn
-                        </div>
-                        <button
-                            className={`snakes__dice-btn ${rolling ? 'snakes__dice-btn--rolling' : ''}`}
-                            onClick={handleRoll}
-                            disabled={rolling || showPrompt}
-                        >
-                            {diceValue ? diceEmojis[diceValue - 1] : '🎲'}
-                        </button>
-                    </div>
-                )}
+                <div className="game__dice-area">
+                    <button
+                        className={`game__dice-btn ${isMyTurn ? 'game__dice-btn--active' : ''}`}
+                        onClick={rollDice}
+                        disabled={!isMyTurn || gameOver}
+                    >
+                        <Icon name="dice" size={28} />
+                        <span>{diceValue || '?'}</span>
+                    </button>
+                </div>
 
-                {/* Prompt */}
-                {showPrompt && activeSquare && (
-                    <div className="snakes__prompt glass-card animate-scale-in">
-                        {specialEvent && (
-                            <div className={`snakes__event ${specialEvent.type === 'ladder' ? 'snakes__event--ladder' : 'snakes__event--snake'}`}>
-                                {specialEvent.type === 'ladder' ? '🪜' : '🐍'} {specialEvent.text}
+                {/* Current square */}
+                {currentSquare && (
+                    <div className="game__prompt glass-card">
+                        {currentSquare.event === 'snake' && (
+                            <div className="game__event game__event--snake">
+                                <Icon name="arrow-down" size={18} color="#f43f5e" />
+                                <span>Slid down a sin!</span>
                             </div>
                         )}
-                        <div className="snakes__prompt-heat">
-                            {'🔥'.repeat(activeSquare.heat)}
-                        </div>
-                        <p className="snakes__prompt-text font-story">{activeSquare.text}</p>
-                        <button className="btn btn--primary btn--full" onClick={handlePromptDone}>
-                            Done ✓
-                        </button>
+                        {currentSquare.event === 'ladder' && (
+                            <div className="game__event game__event--ladder">
+                                <Icon name="arrow-up" size={18} color="#4ade80" />
+                                <span>Climbed a ladder!</span>
+                            </div>
+                        )}
+                        <p className="game__prompt-text">{currentSquare.text}</p>
                     </div>
                 )}
 
-                {/* Game Over */}
-                {gameOver && !showPrompt && (
-                    <div className="snakes__gameover animate-scale-in">
-                        <div className="snakes__gameover-emoji">🔥</div>
-                        <h2 className="font-story">{currentPlayer.name} reached the top!</h2>
-                        <p>The finale awaits...</p>
-                        <button className="btn btn--primary btn--full" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ marginTop: '1.5rem' }}>
-                            Back to Lobby
+                {/* Scores */}
+                <div className="game__scores">
+                    <div className="game__score-card">
+                        <Icon name="heart" size={16} color="#e84393" />
+                        <span>{userProfile.name || 'You'}: {positions[0] + 1}/36</span>
+                    </div>
+                    <div className="game__score-card">
+                        <Icon name="star" size={16} color="#8b5cf6" />
+                        <span>{partnerProfile.name || 'Partner'}: {positions[1] + 1}/36</span>
+                    </div>
+                </div>
+
+                {gameOver && (
+                    <div className="game__over glass-card">
+                        <Icon name="trophy" size={40} color="#ffd700" />
+                        <h3>{positions[0] >= 35 ? userProfile.name : partnerProfile.name} wins!</h3>
+                        <button className="btn btn--primary" onClick={resetGame}>
+                            <Icon name="refresh" size={16} />
+                            <span>Play Again</span>
                         </button>
                     </div>
                 )}

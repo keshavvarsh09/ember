@@ -1,42 +1,51 @@
 import React from 'react';
 import { useGame } from '../engine/gameState';
+import Icon from './ui/Icons';
 
-const games = [
-    { id: 'ludo', screen: 'ludo', title: 'Lust Ludo', emoji: '🎲', desc: 'Roll the dice. Every square dares you deeper.', color: '#e84393', heat: '🔥🔥🔥' },
-    { id: 'snakes', screen: 'snakes', title: 'Sins & Ladders', emoji: '🐍', desc: 'Climb ladders of desire. Slide back to sweetness.', color: '#6c5ce7', heat: '🔥🔥🔥' },
-    { id: 'monopoly', screen: 'monopoly', title: 'Desire Monopoly', emoji: '🏘️', desc: 'Buy body parts. Collect rent in pleasure.', color: '#fd79a8', heat: '🔥🔥🔥🔥' },
-    { id: 'truth-dare', screen: 'truth-dare', title: 'Truth or Dare', emoji: '🔥', desc: '5 rounds. Each one hotter than the last.', color: '#ff6b6b', heat: '🔥🔥' },
-    { id: 'strip-quiz', screen: 'strip-quiz', title: 'Strip Quiz', emoji: '🃏', desc: 'Wrong answer? Lose a layer.', color: '#e17055', heat: '🔥🔥🔥' },
+const GAMES = [
+    { id: 'ludo', label: 'Lust Ludo', desc: '40-square board with intimate prompts', icon: 'board', color: '#e84393', screen: 'ludo' },
+    { id: 'snakes', label: 'Sins & Ladders', desc: '6×6 grid with sins and rewards', icon: 'arrow-up', color: '#8b5cf6', screen: 'snakes' },
+    { id: 'monopoly', label: 'Desire Monopoly', desc: 'Buy body-part properties', icon: 'cards', color: '#ff6b35', screen: 'monopoly' },
+    { id: 'truth-dare', label: 'Truth or Dare', desc: '10 rounds of escalation', icon: 'flame', color: '#f43f5e', screen: 'truth-dare' },
+    { id: 'strip-quiz', label: 'Strip Quiz', desc: 'Answer wrong, lose an item', icon: 'zap', color: '#0ea5e9', screen: 'strip-quiz' },
 ];
 
 export default function MiniGames() {
     const { dispatch } = useGame();
 
     return (
-        <div className="minigames page-enter">
-            <div className="container">
-                <button className="btn btn--ghost" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })} style={{ alignSelf: 'flex-start' }}>
-                    ← Back
-                </button>
-
-                <div className="minigames__header animate-fade-in-up">
-                    <h1 className="minigames__title font-story">Pick Your Game</h1>
-                    <p className="minigames__subtitle">Every game leads somewhere... 😏</p>
+        <div className="screen minigames">
+            <div className="screen__content">
+                <div className="game__header">
+                    <button className="btn btn--icon" onClick={() => dispatch({ type: 'SET_SCREEN', payload: 'lobby' })}>
+                        <Icon name="arrow-left" size={20} />
+                    </button>
+                    <h2 className="game__title">Games</h2>
                 </div>
 
-                <div className="minigames__grid">
-                    {games.map((game, i) => (
-                        <button
+                <p className="screen__subtitle" style={{ marginBottom: 24 }}>
+                    All games sync in real-time with your partner
+                </p>
+
+                <div className="minigames__list">
+                    {GAMES.map(game => (
+                        <div
                             key={game.id}
-                            className="minigames__card glass-card animate-fade-in-up"
-                            style={{ animationDelay: `${i * 100}ms`, '--card-accent': game.color }}
-                            onClick={() => dispatch({ type: 'SET_SCREEN', payload: game.screen })}
+                            className="minigames__card glass-card"
+                            onClick={() => {
+                                dispatch({ type: 'SET_ACTIVE_GAME', payload: game.id });
+                                dispatch({ type: 'SET_SCREEN', payload: game.screen });
+                            }}
                         >
-                            <div className="minigames__card-emoji">{game.emoji}</div>
-                            <h3 className="minigames__card-title">{game.title}</h3>
-                            <p className="minigames__card-desc">{game.desc}</p>
-                            <div className="minigames__card-heat">{game.heat}</div>
-                        </button>
+                            <div className="minigames__card-icon" style={{ background: `${game.color}22`, color: game.color }}>
+                                <Icon name={game.icon} size={28} color={game.color} />
+                            </div>
+                            <div className="minigames__card-info">
+                                <h3 className="minigames__card-title">{game.label}</h3>
+                                <p className="minigames__card-desc">{game.desc}</p>
+                            </div>
+                            <Icon name="arrow-right" size={18} style={{ opacity: 0.5 }} />
+                        </div>
                     ))}
                 </div>
             </div>
